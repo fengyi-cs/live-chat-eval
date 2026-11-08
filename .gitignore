@@ -1,0 +1,19 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.vite/
+coverage/
+
+# local state (SQLite db, uploaded files, api keys live here)
+data/
+
+# env
+.env
+.env.*
+!.env.example
+
+# real chat transcripts are never committed; use fixtures/ for anonymized samples
+/*-chat.md
+/raw/
+
+.DS_Store
