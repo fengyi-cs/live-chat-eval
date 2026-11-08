@@ -27,6 +27,7 @@ export function ImportPanel({ onImported }: { onImported: (sessionId: string) =>
     onSuccess: ({ sessionId }) => {
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
       queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
+      queryClient.invalidateQueries({ queryKey: ['anchors'] });
       setPreview(null);
       setContent('');
       setFileName('');

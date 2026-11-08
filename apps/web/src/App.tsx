@@ -1,9 +1,11 @@
+import { AnchorsPage } from './pages/AnchorsPage.tsx';
 import { ProvidersPage } from './pages/ProvidersPage.tsx';
 import { TranscriptsPage } from './pages/TranscriptsPage.tsx';
 import { usePersistentState } from './usePersistentState.ts';
 
 const TABS = [
   { id: 'transcripts', label: '聊天记录', Page: TranscriptsPage },
+  { id: 'anchors', label: '主播', Page: AnchorsPage },
   { id: 'providers', label: '模型服务', Page: ProvidersPage },
 ] as const;
 

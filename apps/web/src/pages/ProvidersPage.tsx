@@ -2,12 +2,8 @@ import { PROVIDER_KIND_LABELS, PROVIDER_KINDS, type ChatMessage, type ProviderKi
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { api, type ChatDone, type Provider, type ProviderInput } from '../api.ts';
+import { card, input, primaryBtn, secondaryBtn } from '../ui.ts';
 import { usePersistentState } from '../usePersistentState.ts';
-
-const card = 'rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900';
-const input = 'w-full rounded border border-neutral-300 bg-transparent px-2 py-1.5 text-sm dark:border-neutral-700';
-const primaryBtn = 'shrink-0 whitespace-nowrap rounded bg-neutral-900 px-3 py-1.5 text-sm text-white disabled:opacity-40 dark:bg-neutral-100 dark:text-neutral-900';
-const secondaryBtn = 'shrink-0 whitespace-nowrap rounded border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-100 disabled:opacity-40 dark:border-neutral-700 dark:hover:bg-neutral-800';
 
 function useDebounced<T>(value: T, ms: number) {
   const [v, setV] = useState(value);

@@ -3,16 +3,17 @@ import { detectProvider, normalizeBaseUrl, resolveModels, type FetchLike, type P
 import { asc, eq } from 'drizzle-orm';
 import type { Db } from '../db/client.ts';
 import { providers } from '../db/schema.ts';
+import { ConflictError, NotFoundError } from './errors.ts';
 
 type ProviderRow = typeof providers.$inferSelect;
 
-export class ProviderNotFoundError extends Error {
+export class ProviderNotFoundError extends NotFoundError {
   constructor() {
     super('服务商不存在');
   }
 }
 
-export class ProviderConflictError extends Error {}
+export class ProviderConflictError extends ConflictError {}
 
 export interface ProviderInput {
   name: string;

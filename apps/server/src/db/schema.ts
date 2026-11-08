@@ -1,6 +1,6 @@
-import type { ActionEvent, ModelInfo, ProviderKind, SpeakerRole } from '@lce/core';
+import type { ActionEvent, ModelInfo, ProviderKind, ReplyStrategy, SpeakerRole } from '@lce/core';
 import { sql } from 'drizzle-orm';
-import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 const createdAt = () =>
   integer('created_at', { mode: 'timestamp_ms' })
@@ -25,6 +25,27 @@ export const anchors = sqliteTable('anchors', {
   personaPrompt: text('persona_prompt').notNull().default(''),
   createdAt: createdAt(),
 });
+
+export const anchorConfigs = sqliteTable(
+  'anchor_configs',
+  {
+    id: text('id').primaryKey(),
+    anchorName: text('anchor_name')
+      .notNull()
+      .references(() => anchors.name, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    providerId: text('provider_id').references(() => providers.id, { onDelete: 'set null' }),
+    model: text('model'),
+    temperature: real('temperature'),
+    maxTokens: integer('max_tokens'),
+    contextTurns: integer('context_turns').notNull(),
+    replyRules: text('reply_rules').notNull(),
+    proactivePrompt: text('proactive_prompt').notNull(),
+    strategy: text('strategy', { mode: 'json' }).$type<ReplyStrategy>().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('anchor_configs_anchor_name').on(t.anchorName, t.name)],
+);
 
 export const speakerRoles = sqliteTable('speaker_roles', {
   speaker: text('speaker').primaryKey(),

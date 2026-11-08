@@ -4,10 +4,11 @@ import { asc, count, desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Db } from './db/client.ts';
-import { anchors, messages, sessions } from './db/schema.ts';
+import { messages, sessions } from './db/schema.ts';
+import { anchorConfigRoutes, anchorRoutes } from './routes/anchors.ts';
 import { providerRoutes } from './routes/providers.ts';
+import { ConflictError, NotFoundError } from './services/errors.ts';
 import { commitImport, ImportError, previewImport } from './services/imports.ts';
-import { ProviderConflictError, ProviderNotFoundError } from './services/providers.ts';
 
 const MAX_TRANSCRIPT_CHARS = 5_000_000;
 const contentSchema = z.string().min(1).max(MAX_TRANSCRIPT_CHARS);
@@ -20,6 +21,8 @@ export interface AppDeps {
 export function createApp(db: Db, deps: AppDeps = {}) {
   const api = new Hono()
     .route('/providers', providerRoutes(db, deps.fetch))
+    .route('/anchors', anchorRoutes(db))
+    .route('/anchor-configs', anchorConfigRoutes(db, deps.fetch))
     .get('/health', (c) => c.json({ ok: true }))
     .post('/imports/preview', zValidator('json', z.object({ content: contentSchema })), (c) =>
       c.json(previewImport(db, c.req.valid('json').content)),
@@ -39,7 +42,6 @@ export function createApp(db: Db, deps: AppDeps = {}) {
         return c.json(commitImport(db, content, roles as Parameters<typeof commitImport>[2], replace), 201);
       },
     )
-    .get('/anchors', (c) => c.json(db.select().from(anchors).orderBy(asc(anchors.name)).all()))
     .get('/sessions', (c) => {
       const rows = db
         .select({
@@ -74,8 +76,8 @@ export function createApp(db: Db, deps: AppDeps = {}) {
   app.onError((err, c) => {
     if (err instanceof ImportError) return c.json({ error: err.message }, err.status);
     if (err instanceof TranscriptParseError) return c.json({ error: err.message }, 400);
-    if (err instanceof ProviderNotFoundError) return c.json({ error: err.message }, 404);
-    if (err instanceof ProviderConflictError) return c.json({ error: err.message }, 409);
+    if (err instanceof NotFoundError) return c.json({ error: err.message }, 404);
+    if (err instanceof ConflictError) return c.json({ error: err.message }, 409);
     if (err instanceof ProviderError) return c.json({ error: err.message, upstreamStatus: err.status ?? null }, 502);
     console.error(err);
     return c.json({ error: '服务器内部错误' }, 500);

@@ -39,6 +39,7 @@ export function SessionView({ id, onDeleted }: { id: string; onDeleted: () => vo
     mutationFn: () => api.deleteSession(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['anchors'] });
       onDeleted();
     },
   });

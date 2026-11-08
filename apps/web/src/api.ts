@@ -1,4 +1,15 @@
-import type { ActionEvent, ChatMessage, ChatUsage, ModelInfo, ProviderKind, SpeakerRole, TranscriptMeta } from '@lce/core';
+import type {
+  ActionEvent,
+  AnchorExchange,
+  ChatMessage,
+  ChatUsage,
+  ModelInfo,
+  ProviderKind,
+  ReplyStrategy,
+  SpeakerRole,
+  TranscriptMeta,
+  TurnInput,
+} from '@lce/core';
 
 export interface ImportPreview {
   title?: string;
@@ -41,6 +52,34 @@ export interface SessionDetail extends SessionSummary {
 export interface Anchor {
   name: string;
   code: string | null;
+  personaPrompt: string;
+  sessionCount: number;
+  configCount: number;
+}
+
+export interface AnchorConfig {
+  id: string;
+  anchorName: string;
+  name: string;
+  providerId: string | null;
+  model: string | null;
+  temperature: number | null;
+  maxTokens: number | null;
+  contextTurns: number;
+  replyRules: string;
+  proactivePrompt: string;
+  strategy: ReplyStrategy;
+}
+
+export interface AnchorDetail extends Omit<Anchor, 'configCount'> {
+  configs: AnchorConfig[];
+}
+
+export type AnchorConfigInput = Partial<Omit<AnchorConfig, 'id' | 'anchorName' | 'strategy'>> & { strategy?: Partial<ReplyStrategy> };
+
+export interface TrialBody {
+  input: TurnInput;
+  history: AnchorExchange[];
 }
 
 export interface Provider {
@@ -76,7 +115,8 @@ export interface ChatHandlers {
 
 async function errorOf(res: Response) {
   const body = await res.json().catch(() => null);
-  return new Error(body?.error ?? `请求失败（${res.status}）`);
+  const message = typeof body?.error === 'string' ? body.error : res.status === 400 ? '请求参数不合法' : `请求失败（${res.status}）`;
+  return new Error(message);
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -88,13 +128,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.status === 204 ? (undefined as T) : res.json();
 }
 
-async function streamChat(
-  providerId: string,
-  body: { model?: string; messages: ChatMessage[]; temperature?: number },
-  handlers: ChatHandlers,
-  signal?: AbortSignal,
-) {
-  const res = await fetch(`/api/providers/${providerId}/chat`, {
+async function streamSSE(path: string, body: unknown, handlers: ChatHandlers, signal?: AbortSignal) {
+  const res = await fetch(`/api${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -122,6 +157,9 @@ async function streamChat(
   }
 }
 
+const json = (method: string, body: unknown): RequestInit => ({ method, body: JSON.stringify(body) });
+const anchorPath = (name: string) => `/anchors/${encodeURIComponent(name)}`;
+
 export const api = {
   previewImport: (content: string) =>
     request<ImportPreview>('/imports/preview', { method: 'POST', body: JSON.stringify({ content }) }),
@@ -131,6 +169,17 @@ export const api = {
   session: (id: string) => request<SessionDetail>(`/sessions/${id}`),
   deleteSession: (id: string) => request<void>(`/sessions/${id}`, { method: 'DELETE' }),
   anchors: () => request<Anchor[]>('/anchors'),
+  anchor: (name: string) => request<AnchorDetail>(anchorPath(name)),
+  createAnchor: (body: { name: string; personaPrompt?: string }) => request<Anchor>('/anchors', json('POST', body)),
+  updateAnchor: (name: string, body: { code?: string | null; personaPrompt?: string }) => request<Anchor>(anchorPath(name), json('PATCH', body)),
+  deleteAnchor: (name: string) => request<void>(anchorPath(name), { method: 'DELETE' }),
+  createConfig: (anchorName: string, body: AnchorConfigInput & { name: string }) =>
+    request<AnchorConfig>(`${anchorPath(anchorName)}/configs`, json('POST', body)),
+  updateConfig: (id: string, body: AnchorConfigInput) => request<AnchorConfig>(`/anchor-configs/${id}`, json('PATCH', body)),
+  deleteConfig: (id: string) => request<void>(`/anchor-configs/${id}`, { method: 'DELETE' }),
+  trialPrompt: (id: string, body: TrialBody) => request<ChatMessage[]>(`/anchor-configs/${id}/prompt`, json('POST', body)),
+  trialChat: (id: string, body: TrialBody, handlers: ChatHandlers, signal?: AbortSignal) =>
+    streamSSE(`/anchor-configs/${id}/chat`, body, handlers, signal),
   providers: () => request<Provider[]>('/providers'),
   detectProvider: (baseUrl: string) =>
     request<{ kind: ProviderKind; baseUrl: string }>('/providers/detect', { method: 'POST', body: JSON.stringify({ baseUrl }) }),
@@ -139,5 +188,10 @@ export const api = {
     request<Provider>(`/providers/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),
   deleteProvider: (id: string) => request<void>(`/providers/${id}`, { method: 'DELETE' }),
   refreshModels: (id: string) => request<Provider>(`/providers/${id}/models`, { method: 'POST' }),
-  streamChat,
+  streamChat: (
+    providerId: string,
+    body: { model?: string; messages: ChatMessage[]; temperature?: number },
+    handlers: ChatHandlers,
+    signal?: AbortSignal,
+  ) => streamSSE(`/providers/${providerId}/chat`, body, handlers, signal),
 };

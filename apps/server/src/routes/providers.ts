@@ -1,7 +1,6 @@
-import { chatStream, PROVIDER_KINDS, resolveModels, type FetchLike, type ProviderKind } from '@lce/core';
+import { PROVIDER_KINDS, resolveModels, type FetchLike, type ProviderKind } from '@lce/core';
 import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
-import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 import type { Db } from '../db/client.ts';
 import {
@@ -14,6 +13,7 @@ import {
   resolveEndpoint,
   updateProvider,
 } from '../services/providers.ts';
+import { streamChatSSE } from './sse.ts';
 
 const kindSchema = z.enum(PROVIDER_KINDS as [ProviderKind, ...ProviderKind[]]);
 const baseUrlSchema = z.string().trim().min(1).max(2000);
@@ -60,24 +60,6 @@ export function providerRoutes(db: Db, fetchImpl?: FetchLike) {
       const row = getProvider(db, c.req.param('id'));
       const { model = row.defaultModel, ...req } = c.req.valid('json');
       if (!model) return c.json({ error: '没有指定模型，请先拉取模型列表或手动填写模型名' }, 400);
-      const signal = c.req.raw.signal;
-      return streamSSE(c, async (stream) => {
-        const started = performance.now();
-        let firstTokenMs: number | null = null;
-        try {
-          for await (const chunk of chatStream(configOf(row), { model, ...req }, { fetch: fetchImpl, signal })) {
-            if (chunk.type === 'delta') {
-              firstTokenMs ??= Math.round(performance.now() - started);
-              await stream.writeSSE({ event: 'delta', data: JSON.stringify({ text: chunk.text }) });
-            } else {
-              const totalMs = Math.round(performance.now() - started);
-              await stream.writeSSE({ event: 'done', data: JSON.stringify({ model, usage: chunk.usage ?? null, firstTokenMs, totalMs }) });
-            }
-          }
-        } catch (err) {
-          if (signal.aborted) return;
-          await stream.writeSSE({ event: 'error', data: JSON.stringify({ message: (err as Error).message }) });
-        }
-      });
+      return streamChatSSE(c, configOf(row), { model, ...req }, fetchImpl);
     });
 }

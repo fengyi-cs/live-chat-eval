@@ -1,3 +1,5 @@
+export * from './anchor/prompt.ts';
+export * from './anchor/strategy.ts';
 export * from './domain/types.ts';
 export * from './importers/markdown.ts';
 export * from './importers/roles.ts';
