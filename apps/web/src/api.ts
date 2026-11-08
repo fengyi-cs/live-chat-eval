@@ -3,10 +3,15 @@ import type {
   AnchorExchange,
   ChatMessage,
   ChatUsage,
+  EvalItemStatus,
+  EvalSummary,
+  JudgeScores,
   ModelInfo,
   Pace,
   ProviderKind,
   ReplyStrategy,
+  Rubric,
+  RuleResult,
   SimEvent,
   SimMode,
   SpeakerRole,
@@ -138,6 +143,66 @@ export interface RunInfo {
 
 export type RoomEvent = SimEvent | { type: 'hello'; info: RunInfo } | { type: 'pace'; pace: Pace } | { type: 'gone' };
 
+export interface RubricRow {
+  id: string;
+  name: string;
+  rubric: Rubric;
+}
+
+export type EvalStatus = 'running' | 'done' | 'stopped' | 'error';
+
+export interface EvalListItem {
+  id: string;
+  sessionId: string;
+  sessionTitle: string | null;
+  anchorName: string;
+  rubricName: string;
+  model: string | null;
+  status: EvalStatus;
+  error: string | null;
+  composite: number | null;
+  createdAt: string;
+}
+
+export interface EvalItemView {
+  id: number;
+  kind: 'turn' | 'session';
+  seq: number | null;
+  proactive: boolean;
+  status: EvalItemStatus;
+  scores: JudgeScores | null;
+  error: string | null;
+  calls: number;
+  text: string | null;
+}
+
+export interface EvalDetail {
+  id: string;
+  sessionId: string;
+  sessionTitle: string | null;
+  anchorName: string | null;
+  rubricName: string;
+  rubric: Rubric;
+  providerName: string | null;
+  model: string | null;
+  status: EvalStatus;
+  error: string | null;
+  rules: RuleResult;
+  summary: EvalSummary;
+  calls: number;
+  items: EvalItemView[];
+  createdAt: string;
+}
+
+export interface StartEvalBody {
+  sessionId: string;
+  rubricId: string;
+  providerId?: string;
+  model?: string;
+  temperature?: number | null;
+  samples?: number;
+}
+
 function subscribeSim(sessionId: string, onEvent: (ev: RoomEvent) => void) {
   const source = new EventSource(`/api/sims/${sessionId}/events`);
   source.onmessage = (e) => {
@@ -258,6 +323,27 @@ export const api = {
   stepSim: (id: string) => request<void>(`/sims/${id}/step`, { method: 'POST' }),
   stopSim: (id: string) => request<void>(`/sims/${id}/stop`, { method: 'POST' }),
   subscribeSim,
+  rubrics: () => request<RubricRow[]>('/rubrics'),
+  createRubric: (body: { name: string; rubric: Rubric }) => request<RubricRow>('/rubrics', json('POST', body)),
+  updateRubric: (id: string, body: { name?: string; rubric?: Rubric }) => request<RubricRow>(`/rubrics/${id}`, json('PATCH', body)),
+  deleteRubric: (id: string) => request<void>(`/rubrics/${id}`, { method: 'DELETE' }),
+  evals: (sessionId?: string) => request<EvalListItem[]>(`/evals${sessionId ? `?sessionId=${sessionId}` : ''}`),
+  evalDetail: (id: string) => request<EvalDetail>(`/evals/${id}`),
+  startEval: (body: StartEvalBody) => request<EvalDetail>('/evals', json('POST', body)),
+  stopEval: (id: string) => request<void>(`/evals/${id}/stop`, { method: 'POST' }),
+  deleteEval: (id: string) => request<void>(`/evals/${id}`, { method: 'DELETE' }),
+  subscribeEval: (id: string, onEvent: (ev: { type: string }) => void) => {
+    const source = new EventSource(`/api/evals/${id}/events`);
+    source.onmessage = (e) => {
+      const ev = JSON.parse(e.data) as { type: string };
+      onEvent(ev);
+      if (ev.type === 'end' || ev.type === 'gone') source.close();
+    };
+    source.onerror = () => {
+      if (source.readyState === EventSource.CLOSED) onEvent({ type: 'gone' });
+    };
+    return () => source.close();
+  },
   trialPrompt: (id: string, body: TrialBody) => request<ChatMessage[]>(`/anchor-configs/${id}/prompt`, json('POST', body)),
   trialChat: (id: string, body: TrialBody, handlers: ChatHandlers, signal?: AbortSignal) =>
     streamSSE(`/anchor-configs/${id}/chat`, body, handlers, signal),

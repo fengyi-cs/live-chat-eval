@@ -1,6 +1,8 @@
 import { AnchorsPage } from './pages/AnchorsPage.tsx';
+import { EvalsPage } from './pages/EvalsPage.tsx';
 import { LiveRoomPage } from './pages/LiveRoomPage.tsx';
 import { ProvidersPage } from './pages/ProvidersPage.tsx';
+import { RubricsPage } from './pages/RubricsPage.tsx';
 import { ScriptsPage } from './pages/ScriptsPage.tsx';
 import { TranscriptsPage } from './pages/TranscriptsPage.tsx';
 import { usePersistentState } from './usePersistentState.ts';
@@ -9,6 +11,8 @@ const TABS = [
   { id: 'transcripts', label: '聊天记录', Page: TranscriptsPage },
   { id: 'room', label: '直播间', Page: LiveRoomPage },
   { id: 'scripts', label: '弹幕剧本', Page: ScriptsPage },
+  { id: 'evals', label: '评估', Page: EvalsPage },
+  { id: 'rubrics', label: '评分模板', Page: RubricsPage },
   { id: 'anchors', label: '主播', Page: AnchorsPage },
   { id: 'providers', label: '模型服务', Page: ProvidersPage },
 ] as const;

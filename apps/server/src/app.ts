@@ -6,11 +6,13 @@ import { z } from 'zod';
 import type { Db } from './db/client.ts';
 import { messages, sessions } from './db/schema.ts';
 import { anchorConfigRoutes, anchorRoutes } from './routes/anchors.ts';
+import { evalRoutes, rubricRoutes } from './routes/evals.ts';
 import { providerRoutes } from './routes/providers.ts';
 import { scriptRoutes } from './routes/scripts.ts';
 import { simRoutes } from './routes/sims.ts';
 import { BadRequestError, ConflictError, NotFoundError } from './services/errors.ts';
 import { commitImport, ImportError, previewImport } from './services/imports.ts';
+import { EvalManager } from './services/evals.ts';
 import { SimulationManager } from './services/sims.ts';
 
 const MAX_TRANSCRIPT_CHARS = 5_000_000;
@@ -23,12 +25,15 @@ export interface AppDeps {
 
 export function createApp(db: Db, deps: AppDeps = {}) {
   const sims = new SimulationManager(db, deps.fetch);
+  const evalManager = new EvalManager(db, deps.fetch);
   const api = new Hono()
     .route('/providers', providerRoutes(db, deps.fetch))
     .route('/anchors', anchorRoutes(db))
     .route('/anchor-configs', anchorConfigRoutes(db, deps.fetch))
     .route('/scripts', scriptRoutes(db))
     .route('/sims', simRoutes(db, sims))
+    .route('/rubrics', rubricRoutes(db))
+    .route('/evals', evalRoutes(db, evalManager))
     .get('/health', (c) => c.json({ ok: true }))
     .post('/imports/preview', zValidator('json', z.object({ content: contentSchema })), (c) =>
       c.json(previewImport(db, c.req.valid('json').content)),
@@ -77,6 +82,7 @@ export function createApp(db: Db, deps: AppDeps = {}) {
     })
     .delete('/sessions/:id', (c) => {
       sims.stopIfRunning(c.req.param('id'));
+      evalManager.stopForSession(c.req.param('id'));
       const res = db.delete(sessions).where(eq(sessions.id, c.req.param('id'))).run();
       return res.changes ? c.body(null, 204) : c.json({ error: '会话不存在' }, 404);
     });

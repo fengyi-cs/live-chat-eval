@@ -1,6 +1,20 @@
-import type { ActionEvent, ModelInfo, Pace, ProviderKind, ReplyStrategy, SimMode, SpeakerRole } from '@lce/core';
+import type {
+  ActionEvent,
+  DimensionScope,
+  EvalItemStatus,
+  EvalSummary,
+  JudgeScores,
+  ModelInfo,
+  Pace,
+  ProviderKind,
+  ReplyStrategy,
+  Rubric,
+  RuleResult,
+  SimMode,
+  SpeakerRole,
+} from '@lce/core';
 import { sql } from 'drizzle-orm';
-import { integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 const createdAt = () =>
   integer('created_at', { mode: 'timestamp_ms' })
@@ -118,4 +132,57 @@ export const messages = sqliteTable(
     genTotalMs: integer('gen_total_ms'),
   },
   (t) => [uniqueIndex('messages_session_seq').on(t.sessionId, t.seq)],
+);
+
+export const rubrics = sqliteTable('rubrics', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull().unique(),
+  rubric: text('rubric', { mode: 'json' }).$type<Rubric>().notNull(),
+  createdAt: createdAt(),
+});
+
+export type EvalStatus = 'running' | 'done' | 'stopped' | 'error';
+
+export const evals = sqliteTable(
+  'evals',
+  {
+    id: text('id').primaryKey(),
+    sessionId: text('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    rubricId: text('rubric_id').references(() => rubrics.id, { onDelete: 'set null' }),
+    rubricName: text('rubric_name').notNull(),
+    rubric: text('rubric', { mode: 'json' }).$type<Rubric>().notNull(),
+    providerName: text('provider_name'),
+    model: text('model'),
+    temperature: real('temperature'),
+    samples: integer('samples').notNull(),
+    attempts: integer('attempts').notNull(),
+    status: text('status').$type<EvalStatus>().notNull(),
+    error: text('error'),
+    rules: text('rules', { mode: 'json' }).$type<RuleResult>().notNull(),
+    summary: text('summary', { mode: 'json' }).$type<EvalSummary>().notNull(),
+    calls: integer('calls').notNull().default(0),
+    finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
+    createdAt: createdAt(),
+  },
+  (t) => [index('evals_session').on(t.sessionId)],
+);
+
+export const evalItems = sqliteTable(
+  'eval_items',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    evalId: text('eval_id')
+      .notNull()
+      .references(() => evals.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<DimensionScope>().notNull(),
+    seq: integer('seq'),
+    proactive: integer('proactive', { mode: 'boolean' }).notNull(),
+    status: text('status').$type<EvalItemStatus>().notNull(),
+    scores: text('scores', { mode: 'json' }).$type<JudgeScores>(),
+    error: text('error'),
+    calls: integer('calls').notNull().default(0),
+  },
+  (t) => [index('eval_items_eval').on(t.evalId)],
 );
