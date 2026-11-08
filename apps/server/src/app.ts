@@ -1,18 +1,25 @@
-import { SPEAKER_ROLES, TranscriptParseError } from '@lce/core';
+import { ProviderError, SPEAKER_ROLES, TranscriptParseError, type FetchLike } from '@lce/core';
 import { zValidator } from '@hono/zod-validator';
 import { asc, count, desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Db } from './db/client.ts';
 import { anchors, messages, sessions } from './db/schema.ts';
+import { providerRoutes } from './routes/providers.ts';
 import { commitImport, ImportError, previewImport } from './services/imports.ts';
+import { ProviderConflictError, ProviderNotFoundError } from './services/providers.ts';
 
 const MAX_TRANSCRIPT_CHARS = 5_000_000;
 const contentSchema = z.string().min(1).max(MAX_TRANSCRIPT_CHARS);
 const roleSchema = z.enum(SPEAKER_ROLES as [string, ...string[]]);
 
-export function createApp(db: Db) {
+export interface AppDeps {
+  fetch?: FetchLike;
+}
+
+export function createApp(db: Db, deps: AppDeps = {}) {
   const api = new Hono()
+    .route('/providers', providerRoutes(db, deps.fetch))
     .get('/health', (c) => c.json({ ok: true }))
     .post('/imports/preview', zValidator('json', z.object({ content: contentSchema })), (c) =>
       c.json(previewImport(db, c.req.valid('json').content)),
@@ -67,6 +74,9 @@ export function createApp(db: Db) {
   app.onError((err, c) => {
     if (err instanceof ImportError) return c.json({ error: err.message }, err.status);
     if (err instanceof TranscriptParseError) return c.json({ error: err.message }, 400);
+    if (err instanceof ProviderNotFoundError) return c.json({ error: err.message }, 404);
+    if (err instanceof ProviderConflictError) return c.json({ error: err.message }, 409);
+    if (err instanceof ProviderError) return c.json({ error: err.message, upstreamStatus: err.status ?? null }, 502);
     console.error(err);
     return c.json({ error: '服务器内部错误' }, 500);
   });

@@ -1,4 +1,4 @@
-import type { ActionEvent, SpeakerRole } from '@lce/core';
+import type { ActionEvent, ModelInfo, ProviderKind, SpeakerRole } from '@lce/core';
 import { sql } from 'drizzle-orm';
 import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
@@ -6,6 +6,18 @@ const createdAt = () =>
   integer('created_at', { mode: 'timestamp_ms' })
     .notNull()
     .default(sql`(unixepoch('subsec') * 1000)`);
+
+export const providers = sqliteTable('providers', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull().unique(),
+  kind: text('kind').$type<ProviderKind>().notNull(),
+  baseUrl: text('base_url').notNull(),
+  apiKey: text('api_key'),
+  models: text('models', { mode: 'json' }).$type<ModelInfo[]>().notNull().default(sql`'[]'`),
+  modelsFetchedAt: integer('models_fetched_at', { mode: 'timestamp_ms' }),
+  defaultModel: text('default_model'),
+  createdAt: createdAt(),
+});
 
 export const anchors = sqliteTable('anchors', {
   name: text('name').primaryKey(),

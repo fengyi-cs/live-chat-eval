@@ -1,4 +1,4 @@
-import type { ActionEvent, SpeakerRole, TranscriptMeta } from '@lce/core';
+import type { ActionEvent, ChatMessage, ChatUsage, ModelInfo, ProviderKind, SpeakerRole, TranscriptMeta } from '@lce/core';
 
 export interface ImportPreview {
   title?: string;
@@ -43,16 +43,83 @@ export interface Anchor {
   code: string | null;
 }
 
+export interface Provider {
+  id: string;
+  name: string;
+  kind: ProviderKind;
+  baseUrl: string;
+  apiKeyMasked: string | null;
+  models: ModelInfo[];
+  modelsFetchedAt: string | null;
+  defaultModel: string | null;
+}
+
+export interface ProviderInput {
+  name?: string;
+  baseUrl?: string;
+  kind?: ProviderKind;
+  apiKey?: string;
+  defaultModel?: string | null;
+}
+
+export interface ChatDone {
+  model: string;
+  usage: ChatUsage | null;
+  firstTokenMs: number | null;
+  totalMs: number;
+}
+
+export interface ChatHandlers {
+  onDelta: (text: string) => void;
+  onDone: (info: ChatDone) => void;
+}
+
+async function errorOf(res: Response) {
+  const body = await res.json().catch(() => null);
+  return new Error(body?.error ?? `请求失败（${res.status}）`);
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...init,
     headers: init?.body ? { 'content-type': 'application/json' } : undefined,
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    throw new Error(body?.error ?? `请求失败（${res.status}）`);
-  }
+  if (!res.ok) throw await errorOf(res);
   return res.status === 204 ? (undefined as T) : res.json();
+}
+
+async function streamChat(
+  providerId: string,
+  body: { model?: string; messages: ChatMessage[]; temperature?: number },
+  handlers: ChatHandlers,
+  signal?: AbortSignal,
+) {
+  const res = await fetch(`/api/providers/${providerId}/chat`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok || !res.body) throw await errorOf(res);
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += value;
+    let sep: number;
+    while ((sep = buffer.indexOf('\n\n')) >= 0) {
+      const block = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+      const event = /^event: (.*)$/m.exec(block)?.[1];
+      const data = /^data: (.*)$/m.exec(block)?.[1];
+      if (!data) continue;
+      const payload = JSON.parse(data);
+      if (event === 'delta') handlers.onDelta(payload.text);
+      else if (event === 'done') handlers.onDone(payload);
+      else if (event === 'error') throw new Error(payload.message);
+    }
+  }
 }
 
 export const api = {
@@ -64,4 +131,13 @@ export const api = {
   session: (id: string) => request<SessionDetail>(`/sessions/${id}`),
   deleteSession: (id: string) => request<void>(`/sessions/${id}`, { method: 'DELETE' }),
   anchors: () => request<Anchor[]>('/anchors'),
+  providers: () => request<Provider[]>('/providers'),
+  detectProvider: (baseUrl: string) =>
+    request<{ kind: ProviderKind; baseUrl: string }>('/providers/detect', { method: 'POST', body: JSON.stringify({ baseUrl }) }),
+  createProvider: (input: ProviderInput) => request<Provider>('/providers', { method: 'POST', body: JSON.stringify(input) }),
+  updateProvider: (id: string, input: ProviderInput) =>
+    request<Provider>(`/providers/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),
+  deleteProvider: (id: string) => request<void>(`/providers/${id}`, { method: 'DELETE' }),
+  refreshModels: (id: string) => request<Provider>(`/providers/${id}/models`, { method: 'POST' }),
+  streamChat,
 };
