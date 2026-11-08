@@ -11,6 +11,7 @@ import {
   getAnchor,
   getAnchorDetail,
   getConfig,
+  listAllConfigs,
   listAnchors,
   promptConfigOf,
   updateAnchor,
@@ -94,6 +95,7 @@ function trialRequest(db: Db, id: string, body: z.infer<typeof trialSchema>) {
 
 export function anchorConfigRoutes(db: Db, fetchImpl?: FetchLike) {
   return new Hono()
+    .get('/', (c) => c.json(listAllConfigs(db)))
     .patch('/:id', zValidator('json', configSchema.partial()), (c) => c.json(updateConfig(db, c.req.param('id'), c.req.valid('json'))))
     .delete('/:id', (c) => {
       deleteConfig(db, c.req.param('id'));

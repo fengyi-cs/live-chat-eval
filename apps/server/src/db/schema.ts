@@ -1,4 +1,4 @@
-import type { ActionEvent, ModelInfo, ProviderKind, ReplyStrategy, SpeakerRole } from '@lce/core';
+import type { ActionEvent, ModelInfo, Pace, ProviderKind, ReplyStrategy, SimMode, SpeakerRole } from '@lce/core';
 import { sql } from 'drizzle-orm';
 import { integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
@@ -52,6 +52,32 @@ export const speakerRoles = sqliteTable('speaker_roles', {
   role: text('role').$type<SpeakerRole>().notNull(),
 });
 
+export type SessionStatus = 'done' | 'running' | 'stopped' | 'error';
+
+export interface SessionSnapshot {
+  configId: string;
+  configName: string;
+  providerName: string;
+  model: string;
+  temperature: number | null;
+  personaPrompt: string;
+  replyRules: string;
+  proactivePrompt: string;
+  contextTurns: number;
+  strategy: ReplyStrategy;
+  mode: SimMode;
+  pace: Pace | null;
+  scriptName: string | null;
+}
+
+export const scripts = sqliteTable('scripts', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull().unique(),
+  content: text('content').notNull(),
+  defaultGapSec: real('default_gap_sec').notNull().default(3),
+  createdAt: createdAt(),
+});
+
 export const sessions = sqliteTable('sessions', {
   id: text('id').primaryKey(),
   source: text('source').$type<'import' | 'live' | 'script'>().notNull(),
@@ -64,6 +90,11 @@ export const sessions = sqliteTable('sessions', {
   endedAt: text('ended_at'),
   unanswered: text('unanswered', { mode: 'json' }).$type<number[]>().notNull(),
   orphanActions: text('orphan_actions', { mode: 'json' }).$type<ActionEvent[]>().notNull(),
+  status: text('status').$type<SessionStatus>().notNull().default('done'),
+  error: text('error'),
+  configId: text('config_id'),
+  scriptId: text('script_id'),
+  snapshot: text('snapshot', { mode: 'json' }).$type<SessionSnapshot>(),
   createdAt: createdAt(),
 });
 
@@ -83,6 +114,8 @@ export const messages = sqliteTable(
     latencyMs: integer('latency_ms'),
     proactive: integer('proactive', { mode: 'boolean' }),
     actions: text('actions', { mode: 'json' }).$type<ActionEvent[]>(),
+    genFirstTokenMs: integer('gen_first_token_ms'),
+    genTotalMs: integer('gen_total_ms'),
   },
   (t) => [uniqueIndex('messages_session_seq').on(t.sessionId, t.seq)],
 );

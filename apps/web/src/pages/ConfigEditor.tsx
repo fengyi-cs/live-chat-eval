@@ -220,7 +220,7 @@ export function ConfigEditor({ config }: { config: AnchorConfig }) {
           <input type="checkbox" className="mt-1" checked={s.llmSelect} onChange={(e) => setStrategy({ llmSelect: e.target.checked })} />
           <span>
             让模型判断回应哪几条弹幕
-            <span className="block text-xs text-neutral-500">直播间模拟上线后生效。</span>
+            <span className="block text-xs text-neutral-500">会多一次模型调用，先从待回复的弹幕里挑出最多「单次最多回应」条，耗时计入回复延迟。</span>
           </span>
         </label>
         <p className="text-xs text-neutral-500">回复策略在直播间模拟里生效；试播是手动触发，不受策略影响。</p>

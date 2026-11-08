@@ -4,8 +4,11 @@ import type {
   ChatMessage,
   ChatUsage,
   ModelInfo,
+  Pace,
   ProviderKind,
   ReplyStrategy,
+  SimEvent,
+  SimMode,
   SpeakerRole,
   TranscriptMeta,
   TurnInput,
@@ -20,11 +23,16 @@ export interface ImportPreview {
   duplicateSessionId: string | null;
 }
 
+export type SessionSource = 'import' | 'live' | 'script';
+export type SessionStatus = 'done' | 'running' | 'stopped' | 'error';
+
 export interface SessionSummary {
   id: string;
   externalId: string | null;
   anchorName: string;
   title: string | null;
+  source: SessionSource;
+  status: SessionStatus;
   startedAt: string | null;
   endedAt: string | null;
   messageCount: number;
@@ -41,11 +49,26 @@ export interface StoredMessage {
   latencyMs: number | null;
   proactive: boolean | null;
   actions: ActionEvent[] | null;
+  genFirstTokenMs: number | null;
+  genTotalMs: number | null;
+}
+
+export interface SessionSnapshot {
+  configName: string;
+  providerName: string;
+  model: string;
+  temperature: number | null;
+  strategy: ReplyStrategy;
+  mode: SimMode;
+  pace: Pace | null;
+  scriptName: string | null;
 }
 
 export interface SessionDetail extends SessionSummary {
   unanswered: number[];
   orphanActions: ActionEvent[];
+  error: string | null;
+  snapshot: SessionSnapshot | null;
   messages: StoredMessage[];
 }
 
@@ -80,6 +103,52 @@ export type AnchorConfigInput = Partial<Omit<AnchorConfig, 'id' | 'anchorName' |
 export interface TrialBody {
   input: TurnInput;
   history: AnchorExchange[];
+}
+
+export interface AnchorConfigSummary extends AnchorConfig {
+  providerName: string | null;
+  providerDefaultModel: string | null;
+}
+
+export interface Script {
+  id: string;
+  name: string;
+  content: string;
+  defaultGapSec: number;
+  eventCount: number;
+  durationMs: number;
+  speakerCount: number;
+  issueCount: number;
+}
+
+export type ScriptInput = Partial<Pick<Script, 'name' | 'content' | 'defaultGapSec'>>;
+
+export type StartSim = { mode: 'live'; configId: string } | { mode: 'script'; configId: string; scriptId: string; pace: Pace };
+
+export interface RunInfo {
+  sessionId: string;
+  mode: SimMode;
+  anchorName: string;
+  configName: string;
+  scriptName: string | null;
+  scriptDurationMs: number | null;
+  pace: Pace | null;
+  startedAt: string;
+}
+
+export type RoomEvent = SimEvent | { type: 'hello'; info: RunInfo } | { type: 'pace'; pace: Pace } | { type: 'gone' };
+
+function subscribeSim(sessionId: string, onEvent: (ev: RoomEvent) => void) {
+  const source = new EventSource(`/api/sims/${sessionId}/events`);
+  source.onmessage = (e) => {
+    const ev = JSON.parse(e.data) as RoomEvent;
+    onEvent(ev);
+    if (ev.type === 'end' || ev.type === 'gone') source.close();
+  };
+  source.onerror = () => {
+    if (source.readyState === EventSource.CLOSED) onEvent({ type: 'gone' });
+  };
+  return () => source.close();
 }
 
 export interface Provider {
@@ -177,6 +246,18 @@ export const api = {
     request<AnchorConfig>(`${anchorPath(anchorName)}/configs`, json('POST', body)),
   updateConfig: (id: string, body: AnchorConfigInput) => request<AnchorConfig>(`/anchor-configs/${id}`, json('PATCH', body)),
   deleteConfig: (id: string) => request<void>(`/anchor-configs/${id}`, { method: 'DELETE' }),
+  allConfigs: () => request<AnchorConfigSummary[]>('/anchor-configs'),
+  scripts: () => request<Script[]>('/scripts'),
+  createScript: (body: ScriptInput & { name: string; content: string }) => request<Script>('/scripts', json('POST', body)),
+  updateScript: (id: string, body: ScriptInput) => request<Script>(`/scripts/${id}`, json('PATCH', body)),
+  deleteScript: (id: string) => request<void>(`/scripts/${id}`, { method: 'DELETE' }),
+  sims: () => request<RunInfo[]>('/sims'),
+  startSim: (body: StartSim) => request<RunInfo>('/sims', json('POST', body)),
+  injectDanmaku: (id: string, speaker: string, text: string) => request<unknown>(`/sims/${id}/danmaku`, json('POST', { speaker, text })),
+  setPace: (id: string, pace: Pace) => request<void>(`/sims/${id}/pace`, json('POST', pace)),
+  stepSim: (id: string) => request<void>(`/sims/${id}/step`, { method: 'POST' }),
+  stopSim: (id: string) => request<void>(`/sims/${id}/stop`, { method: 'POST' }),
+  subscribeSim,
   trialPrompt: (id: string, body: TrialBody) => request<ChatMessage[]>(`/anchor-configs/${id}/prompt`, json('POST', body)),
   trialChat: (id: string, body: TrialBody, handlers: ChatHandlers, signal?: AbortSignal) =>
     streamSSE(`/anchor-configs/${id}/chat`, body, handlers, signal),

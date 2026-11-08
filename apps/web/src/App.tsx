@@ -1,10 +1,14 @@
 import { AnchorsPage } from './pages/AnchorsPage.tsx';
+import { LiveRoomPage } from './pages/LiveRoomPage.tsx';
 import { ProvidersPage } from './pages/ProvidersPage.tsx';
+import { ScriptsPage } from './pages/ScriptsPage.tsx';
 import { TranscriptsPage } from './pages/TranscriptsPage.tsx';
 import { usePersistentState } from './usePersistentState.ts';
 
 const TABS = [
   { id: 'transcripts', label: '聊天记录', Page: TranscriptsPage },
+  { id: 'room', label: '直播间', Page: LiveRoomPage },
+  { id: 'scripts', label: '弹幕剧本', Page: ScriptsPage },
   { id: 'anchors', label: '主播', Page: AnchorsPage },
   { id: 'providers', label: '模型服务', Page: ProvidersPage },
 ] as const;
@@ -21,14 +25,14 @@ export function App() {
         <div className="mx-auto max-w-7xl">
           <h1 className="text-lg font-semibold">live-chat-eval</h1>
           <p className="text-xs text-neutral-500">直播间 AI 主播对话评估</p>
-          <nav className="mt-2 flex gap-1" aria-label="主导航">
+          <nav className="mt-2 -mx-4 flex gap-1 overflow-x-auto px-4 [scrollbar-width:none]" aria-label="主导航">
             {TABS.map((t) => (
               <button
                 key={t.id}
                 type="button"
                 onClick={() => setTab(t.id)}
                 aria-current={t.id === active.id ? 'page' : undefined}
-                className={`border-b-2 px-3 py-2 text-sm ${
+                className={`shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm ${
                   t.id === active.id
                     ? 'border-neutral-900 font-medium dark:border-neutral-100'
                     : 'border-transparent text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'

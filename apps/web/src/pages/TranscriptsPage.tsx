@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api.ts';
+import { SOURCE_LABELS, STATUS_LABELS, STATUS_TONE } from '../labels.ts';
 import { usePersistentState } from '../usePersistentState.ts';
 import { ImportPanel } from './ImportPanel.tsx';
 import { SessionView } from './SessionView.tsx';
@@ -16,10 +17,10 @@ export function TranscriptsPage() {
       <aside className="space-y-4">
         <ImportPanel onImported={setSelected} />
         <section className="rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
-          <h2 className="mb-2 text-sm font-medium">已导入会话</h2>
+          <h2 className="mb-2 text-sm font-medium">会话记录</h2>
           {sessions.isPending && <p className="text-sm text-neutral-500">加载中…</p>}
           {sessions.error && <p className="text-sm text-red-600">{sessions.error.message}</p>}
-          {sessions.data?.length === 0 && <p className="text-sm text-neutral-500">还没有会话，先导入一份聊天记录。</p>}
+          {sessions.data?.length === 0 && <p className="text-sm text-neutral-500">还没有会话。导入一份聊天记录，或者去「直播间」跑一场模拟。</p>}
           <ul className="space-y-1">
             {sessions.data?.map((s) => (
               <li key={s.id}>
@@ -32,8 +33,9 @@ export function TranscriptsPage() {
                 >
                   <span>{s.anchorName}</span>
                   <span className="ml-2 text-xs text-neutral-500">
-                    {s.externalId ? `场次 ${s.externalId}` : '无场次'} · {s.messageCount} 条
+                    {s.externalId ? `场次 ${s.externalId}` : SOURCE_LABELS[s.source]} · {s.messageCount} 条
                   </span>
+                  {s.status !== 'done' && <span className={`ml-1 rounded px-1 text-xs ${STATUS_TONE[s.status]}`}>{STATUS_LABELS[s.status]}</span>}
                 </button>
               </li>
             ))}

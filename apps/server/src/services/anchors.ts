@@ -10,7 +10,7 @@ import {
 } from '@lce/core';
 import { and, asc, count, eq } from 'drizzle-orm';
 import type { Db } from '../db/client.ts';
-import { anchorConfigs, anchors, sessions } from '../db/schema.ts';
+import { anchorConfigs, anchors, providers, sessions } from '../db/schema.ts';
 import { ConflictError, NotFoundError } from './errors.ts';
 import { getProvider } from './providers.ts';
 
@@ -164,6 +164,16 @@ export function updateConfig(db: Db, id: string, input: Partial<ConfigInput>) {
 export function deleteConfig(db: Db, id: string) {
   const res = db.delete(anchorConfigs).where(eq(anchorConfigs.id, id)).run();
   if (!res.changes) throw new NotFoundError('主播配置不存在');
+}
+
+export function listAllConfigs(db: Db) {
+  return db
+    .select({ config: anchorConfigs, providerName: providers.name, providerDefaultModel: providers.defaultModel })
+    .from(anchorConfigs)
+    .leftJoin(providers, eq(providers.id, anchorConfigs.providerId))
+    .orderBy(asc(anchorConfigs.anchorName), asc(anchorConfigs.createdAt))
+    .all()
+    .map(({ config, providerName, providerDefaultModel }) => ({ ...config, providerName, providerDefaultModel }));
 }
 
 export function promptConfigOf(anchor: AnchorRow, cfg: ConfigRow): AnchorPromptConfig {

@@ -1,36 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type StoredMessage } from '../api.ts';
-
-const formatLatency = (ms: number) => `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
-
-function MessageRow({ m, bySeq, unanswered }: { m: StoredMessage; bySeq: Map<number, StoredMessage>; unanswered: boolean }) {
-  if (m.role === 'action' || m.role === 'ignore') return null;
-  const isAnchor = m.role === 'anchor';
-  return (
-    <li className={`flex ${isAnchor ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-[85%] rounded-lg px-3 py-2 sm:max-w-[70%] ${isAnchor ? 'bg-sky-50 dark:bg-sky-950' : 'bg-white dark:bg-neutral-900'} border border-neutral-200 dark:border-neutral-800`}>
-        <div className="mb-1 flex flex-wrap items-center gap-x-2 text-xs text-neutral-500">
-          <span className="font-medium text-neutral-700 dark:text-neutral-300">{m.speaker}</span>
-          <span>{m.time.slice(11)}</span>
-          {isAnchor && m.proactive && <span className="rounded bg-violet-100 px-1 text-violet-700 dark:bg-violet-900 dark:text-violet-200">主动发言</span>}
-          {isAnchor && m.latencyMs !== null && <span>延迟 {formatLatency(m.latencyMs)}</span>}
-          {unanswered && <span className="rounded bg-amber-100 px-1 text-amber-700 dark:bg-amber-900 dark:text-amber-200">未回应</span>}
-        </div>
-        {isAnchor && m.repliesTo && m.repliesTo.length > 0 && (
-          <div className="mb-1 border-l-2 border-sky-300 pl-2 text-xs text-neutral-500">
-            回应：{m.repliesTo.map((s) => `${bySeq.get(s)?.speaker}：${bySeq.get(s)?.text}`).join(' / ')}
-          </div>
-        )}
-        <p className="whitespace-pre-wrap text-sm">{m.text}</p>
-        {m.actions?.map((a) => (
-          <p key={a.seq} className="mt-1 text-xs text-emerald-700 dark:text-emerald-400">
-            [动作] {a.text}
-          </p>
-        ))}
-      </div>
-    </li>
-  );
-}
+import { api } from '../api.ts';
+import { formatLatency, SOURCE_LABELS, STATUS_LABELS, STATUS_TONE } from '../labels.ts';
+import { MessageBubble } from './MessageBubble.tsx';
 
 export function SessionView({ id, onDeleted }: { id: string; onDeleted: () => void }) {
   const queryClient = useQueryClient();
@@ -49,6 +20,10 @@ export function SessionView({ id, onDeleted }: { id: string; onDeleted: () => vo
 
   const s = session.data;
   const bySeq = new Map(s.messages.map((m) => [m.seq, m]));
+  const quote = (seq: number) => {
+    const m = bySeq.get(seq);
+    return m && `${m.speaker}：${m.text}`;
+  };
   const unanswered = new Set(s.unanswered);
   const anchorTurns = s.messages.filter((m) => m.role === 'anchor');
   const latencies = anchorTurns.map((m) => m.latencyMs).filter((v): v is number => v !== null);
@@ -61,7 +36,19 @@ export function SessionView({ id, onDeleted }: { id: string; onDeleted: () => vo
           <h2 className="font-medium">
             {s.anchorName}
             {s.externalId && <span className="ml-2 text-sm text-neutral-500">场次 {s.externalId}</span>}
+            {s.source !== 'import' && <span className="ml-2 text-sm text-neutral-500">{s.title}</span>}
           </h2>
+          <p className="mt-0.5 flex flex-wrap gap-1 text-xs">
+            <span className="rounded bg-neutral-100 px-1 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">{SOURCE_LABELS[s.source]}</span>
+            <span className={`rounded px-1 ${STATUS_TONE[s.status]}`}>{STATUS_LABELS[s.status]}</span>
+            {s.snapshot && (
+              <span className="text-neutral-500">
+                {s.snapshot.providerName} · {s.snapshot.model}
+                {s.snapshot.temperature !== null && ` · 温度 ${s.snapshot.temperature}`}
+              </span>
+            )}
+          </p>
+          {s.error && <p className="mt-1 text-xs text-red-600">{s.error}</p>}
           <p className="text-xs text-neutral-500">
             {s.startedAt?.replace('T', ' ')} ~ {s.endedAt?.replace('T', ' ')}
           </p>
@@ -80,7 +67,7 @@ export function SessionView({ id, onDeleted }: { id: string; onDeleted: () => vo
       </div>
       <ul className="space-y-2">
         {s.messages.map((m) => (
-          <MessageRow key={m.id} m={m} bySeq={bySeq} unanswered={unanswered.has(m.seq)} />
+          <MessageBubble key={m.id} m={{ ...m, time: m.time.slice(11) }} quote={quote} unanswered={unanswered.has(m.seq)} />
         ))}
       </ul>
     </div>

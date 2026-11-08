@@ -7,8 +7,11 @@ import type { Db } from './db/client.ts';
 import { messages, sessions } from './db/schema.ts';
 import { anchorConfigRoutes, anchorRoutes } from './routes/anchors.ts';
 import { providerRoutes } from './routes/providers.ts';
-import { ConflictError, NotFoundError } from './services/errors.ts';
+import { scriptRoutes } from './routes/scripts.ts';
+import { simRoutes } from './routes/sims.ts';
+import { BadRequestError, ConflictError, NotFoundError } from './services/errors.ts';
 import { commitImport, ImportError, previewImport } from './services/imports.ts';
+import { SimulationManager } from './services/sims.ts';
 
 const MAX_TRANSCRIPT_CHARS = 5_000_000;
 const contentSchema = z.string().min(1).max(MAX_TRANSCRIPT_CHARS);
@@ -19,10 +22,13 @@ export interface AppDeps {
 }
 
 export function createApp(db: Db, deps: AppDeps = {}) {
+  const sims = new SimulationManager(db, deps.fetch);
   const api = new Hono()
     .route('/providers', providerRoutes(db, deps.fetch))
     .route('/anchors', anchorRoutes(db))
     .route('/anchor-configs', anchorConfigRoutes(db, deps.fetch))
+    .route('/scripts', scriptRoutes(db))
+    .route('/sims', simRoutes(db, sims))
     .get('/health', (c) => c.json({ ok: true }))
     .post('/imports/preview', zValidator('json', z.object({ content: contentSchema })), (c) =>
       c.json(previewImport(db, c.req.valid('json').content)),
@@ -49,6 +55,8 @@ export function createApp(db: Db, deps: AppDeps = {}) {
           externalId: sessions.externalId,
           anchorName: sessions.anchorName,
           title: sessions.title,
+          source: sessions.source,
+          status: sessions.status,
           startedAt: sessions.startedAt,
           endedAt: sessions.endedAt,
           messageCount: count(messages.id),
@@ -68,6 +76,7 @@ export function createApp(db: Db, deps: AppDeps = {}) {
       return c.json({ ...session, messages: msgs });
     })
     .delete('/sessions/:id', (c) => {
+      sims.stopIfRunning(c.req.param('id'));
       const res = db.delete(sessions).where(eq(sessions.id, c.req.param('id'))).run();
       return res.changes ? c.body(null, 204) : c.json({ error: '会话不存在' }, 404);
     });
@@ -78,6 +87,7 @@ export function createApp(db: Db, deps: AppDeps = {}) {
     if (err instanceof TranscriptParseError) return c.json({ error: err.message }, 400);
     if (err instanceof NotFoundError) return c.json({ error: err.message }, 404);
     if (err instanceof ConflictError) return c.json({ error: err.message }, 409);
+    if (err instanceof BadRequestError) return c.json({ error: err.message }, 400);
     if (err instanceof ProviderError) return c.json({ error: err.message, upstreamStatus: err.status ?? null }, 502);
     console.error(err);
     return c.json({ error: '服务器内部错误' }, 500);
