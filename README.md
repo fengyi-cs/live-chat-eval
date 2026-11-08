@@ -1,6 +1,6 @@
 # live-chat-eval
 
-直播间 AI 主播对话评估框架。需求见 [docs/requirements.md](docs/requirements.md)，架构见 [docs/architecture.md](docs/architecture.md)。
+直播间 AI 主播对话评估框架。需求见 [docs/requirements.md](docs/requirements.md)，架构见 [docs/architecture.md](docs/architecture.md)，开发工作流见 [docs/workflow.md](docs/workflow.md)。
 
 ## 启动
 
