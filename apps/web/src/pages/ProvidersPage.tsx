@@ -8,6 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popove
 import { cn } from '../lib/utils.ts';
 import { card, input, listItem, primaryBtn, secondaryBtn } from '../ui.ts';
 import { usePersistentState } from '../usePersistentState.ts';
+import { HintBubble } from '../components/HintBubble.tsx';
 
 function useDebounced<T>(value: T, ms: number) {
   const [v, setV] = useState(value);
@@ -341,7 +342,7 @@ function ModelPool({ provider, autoDetect }: { provider: Provider; autoDetect: b
         </div>
       )}
 
-      {/* Selected model chips */}
+      {/* Selected model chips + pool manager */}
       <div className="space-y-2">
         <div className="flex flex-wrap items-start gap-1.5">
           {provider.enabledModels.length === 0 ? (
@@ -362,39 +363,49 @@ function ModelPool({ provider, autoDetect }: { provider: Provider; autoDetect: b
             ))
           )}
         </div>
-        <button
-          type="button"
-          className={`${secondaryBtn} text-xs`}
-          onClick={() => setPoolOpen((v) => !v)}
-        >
-          {poolOpen ? '收起模型列表 ▴' : `管理模型… ▾`}
-        </button>
+        <Popover open={poolOpen} onOpenChange={setPoolOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              role="combobox"
+              aria-expanded={poolOpen}
+              className="flex items-center gap-2 rounded-lg border border-neutral-300 bg-transparent px-3 py-1.5 text-left text-sm transition-colors hover:bg-neutral-50 hover:border-neutral-400 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:hover:bg-neutral-800/60 dark:hover:border-neutral-600"
+            >
+              <span className="flex-1 text-sm">管理模型</span>
+              {provider.enabledModels.length > 0 && (
+                <span className="rounded-full bg-indigo-100 px-1.5 text-xs font-medium text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">
+                  {provider.enabledModels.length}
+                </span>
+              )}
+              <ChevronsUpDownIcon className="size-4 shrink-0 opacity-50" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-(--radix-popover-trigger-width) min-w-64 p-0" align="start">
+            <Command>
+              <CommandInput value={search} onValueChange={setSearch} placeholder="搜索模型，或输入模型 ID 手动添加" />
+              <CommandList className="max-h-72">
+                <CommandEmpty>{canAdd ? null : '没有匹配的模型'}</CommandEmpty>
+                {canAdd && (
+                  <CommandGroup heading="手动添加">
+                    <CommandItem
+                      value={`__add__ ${term}`}
+                      onSelect={() => {
+                        savePool.mutate([...provider.enabledModels, term]);
+                        setSearch('');
+                      }}
+                    >
+                      <PlusIcon className="size-4" />
+                      添加「{term}」到模型池
+                    </CommandItem>
+                  </CommandGroup>
+                )}
+                {manual.length > 0 && <CommandGroup heading="手动添加的模型">{manual.map((m) => item(m))}</CommandGroup>}
+                {provider.models.length > 0 && <CommandGroup heading="服务商返回的模型">{provider.models.map((m) => item(m.id, m.name))}</CommandGroup>}
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
       </div>
-
-      {poolOpen && (
-        <Command className="rounded border border-neutral-200 bg-transparent dark:border-neutral-800">
-          <CommandInput value={search} onValueChange={setSearch} placeholder="搜索模型，或输入模型 ID 手动添加" />
-          <CommandList className="max-h-72">
-            <CommandEmpty>{canAdd ? null : '没有匹配的模型'}</CommandEmpty>
-            {canAdd && (
-              <CommandGroup heading="手动添加">
-                <CommandItem
-                  value={`__add__ ${term}`}
-                  onSelect={() => {
-                    savePool.mutate([...provider.enabledModels, term]);
-                    setSearch('');
-                  }}
-                >
-                  <PlusIcon className="size-4" />
-                  添加「{term}」到模型池
-                </CommandItem>
-              </CommandGroup>
-            )}
-            {manual.length > 0 && <CommandGroup heading="手动添加的模型">{manual.map((m) => item(m))}</CommandGroup>}
-            {provider.models.length > 0 && <CommandGroup heading="服务商返回的模型">{provider.models.map((m) => item(m.id, m.name))}</CommandGroup>}
-          </CommandList>
-        </Command>
-      )}
     </section>
   );
 }
@@ -490,11 +501,32 @@ export function ProvidersPage() {
             onCancel={() => setEditing(null)}
           />
         ) : active ? (
-          <ProviderDetail key={active.id} provider={active} onEdit={() => setEditing(active.id)} autoDetect={detectFor === active.id} />
+          <>
+            <HintBubble
+              storageKey="lce.hint.providers"
+              title="第一次设置？"
+              tone="info"
+            >
+              填入模型服务商的接口地址和 API Key，保存后会自动拉取可用模型列表。推荐先用 DeepSeek 或 OpenAI 等 OpenAI 兼容接口。
+            </HintBubble>
+            <ProviderDetail key={active.id} provider={active} onEdit={() => setEditing(active.id)} autoDetect={detectFor === active.id} />
+          </>
         ) : (
-          <div className="rounded-lg border border-dashed border-neutral-300 p-10 text-center text-sm text-neutral-500 dark:border-neutral-700">
-            新增一个服务商，填好地址和 Key，保存后会自动拉取模型；勾选要用的模型加入模型池
-          </div>
+          <>
+            <HintBubble
+              storageKey="lce.hint.providersEmpty"
+              title="从这里开始"
+              tone="info"
+              action={
+                <button type="button" className={primaryBtn} onClick={() => setEditing('new')}>新增服务商</button>
+              }
+            >
+              添加一个模型服务商（如 DeepSeek、OpenAI），填入接口地址和 API Key，保存后会自动拉取可用模型。这是开始使用前唯一需要手动配置的步骤。
+            </HintBubble>
+            <div className="rounded-lg border border-dashed border-neutral-300 p-10 text-center text-sm text-neutral-500 dark:border-neutral-700">
+              新增一个服务商，填好地址和 Key，保存后会自动拉取模型；勾选要用的模型加入模型池
+            </div>
+          </>
         )}
       </main>
     </div>
