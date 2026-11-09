@@ -36,16 +36,18 @@ export function DanmakuInput({ onSend, busy, disabled, hint }: Props) {
       className="flex items-center gap-2 border-t border-neutral-200 px-2 py-2 dark:border-neutral-800"
       onSubmit={(e) => { e.preventDefault(); void handleSend(); }}
     >
-      <div className="w-24 shrink-0">
-        <input
-          className={input}
-          value={speaker}
-          onChange={(e) => setSpeaker(e.target.value)}
-          aria-label="昵称"
-          placeholder="昵称"
-          maxLength={100}
-          disabled={disabled}
-        />
+      <div className="shrink-0">
+        <label className="block space-y-0.5">
+          <span className="block text-[10px] text-neutral-400 pl-0.5">我的昵称</span>
+          <input
+            className={`${input} w-24`}
+            value={speaker}
+            onChange={(e) => setSpeaker(e.target.value)}
+            aria-label="我的昵称"
+            placeholder="我的昵称"
+            maxLength={100}
+          />
+        </label>
       </div>
       <input
         className={`${input} min-w-0 flex-1`}

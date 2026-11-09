@@ -28,6 +28,7 @@ import {
 } from '../components/ui/dialog.tsx';
 import { card, emptyState, input, listItem, primaryBtn, secondaryBtn } from '../ui.ts';
 import { usePersistentState } from '../usePersistentState.ts';
+import { HintBubble } from '../components/HintBubble.tsx';
 
 const num = (v: string, fallback: number) => (v === '' || !Number.isFinite(Number(v)) ? fallback : Number(v));
 
@@ -111,9 +112,10 @@ interface SortableDimRowProps {
   d: Dimension;
   contrib?: number; // S11: 占总分百分比 (0-100)
   onEdit: () => void;
+  onWeightChange: (weight: number) => void;
 }
 
-function SortableDimRow({ id, d, contrib, onEdit }: SortableDimRowProps) {
+function SortableDimRow({ id, d, contrib, onEdit, onWeightChange }: SortableDimRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   return (
     <div
@@ -140,18 +142,31 @@ function SortableDimRow({ id, d, contrib, onEdit }: SortableDimRowProps) {
       <span className="ml-1 rounded-full bg-neutral-100 px-1.5 py-0.5 text-xs text-neutral-500 dark:bg-neutral-800">
         {d.scope === 'session' ? '整场' : '逐条'}
       </span>
-      <span className="ml-1 text-xs text-neutral-400">×{d.weight}</span>
-      {contrib !== undefined && d.enabled && d.weight > 0 && (
-        <span className="ml-0.5 text-xs text-indigo-500 dark:text-indigo-400" title="占总分的比例">{contrib.toFixed(0)}%</span>
-      )}
-      <button
-        type="button"
-        className="ml-auto rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
-        aria-label={`编辑「${d.name}」`}
-        onClick={onEdit}
-      >
-        <PencilIcon className="size-3.5" />
-      </button>
+      <div className="ml-auto flex items-center gap-2">
+        <input
+          type="range"
+          min={0}
+          max={5}
+          step={0.5}
+          value={d.weight}
+          disabled={!d.enabled}
+          onChange={(e) => onWeightChange(Number(e.target.value))}
+          className="w-20 accent-indigo-500 disabled:opacity-30"
+          aria-label={`「${d.name}」权重`}
+        />
+        <span className="w-7 text-sm font-medium tabular-nums text-neutral-500">{d.weight}</span>
+        {contrib !== undefined && d.enabled && d.weight > 0 && (
+          <span className="w-8 text-xs text-indigo-500 dark:text-indigo-400" title="占总分的比例">{contrib.toFixed(0)}%</span>
+        )}
+        <button
+          type="button"
+          className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+          aria-label={`编辑「${d.name}」`}
+          onClick={onEdit}
+        >
+          <PencilIcon className="size-3.5" />
+        </button>
+      </div>
     </div>
   );
 }
@@ -327,9 +342,6 @@ function RubricEditor({ row, onDeleted, onDirtyChange }: { row: RubricRow; onDel
                   <span className={`text-sm font-medium ${r.rules[k].enabled ? 'text-neutral-800 dark:text-neutral-100' : 'text-neutral-400'}`}>
                     {RULE_LABELS[k]}
                   </span>
-                  {RULE_DESCRIPTIONS[k] && (
-                    <span className="text-xs text-neutral-400" title={RULE_DESCRIPTIONS[k]}>ℹ️</span>
-                  )}
                 </label>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-neutral-400">权重</span>
@@ -344,6 +356,9 @@ function RubricEditor({ row, onDeleted, onDirtyChange }: { row: RubricRow; onDel
                   )}
                 </div>
               </div>
+              {RULE_DESCRIPTIONS[k] && (
+                <p className="mt-1 text-xs text-neutral-400 pl-6">{RULE_DESCRIPTIONS[k]}</p>
+              )}
               {r.rules[k].enabled && (
                 <>
                   {k === 'latency' && (
@@ -420,6 +435,7 @@ function RubricEditor({ row, onDeleted, onDirtyChange }: { row: RubricRow; onDel
                   d={d}
                   contrib={dimContrib(d)}
                   onEdit={() => setEditingDimIdx(i)}
+                  onWeightChange={(weight) => setDim(i, { ...d, weight })}
                 />
               ))}
             </div>
@@ -505,7 +521,15 @@ export function RubricsPage() {
           ))}
         </ul>
       </aside>
-      <main>{active ? <RubricEditor key={active.id} row={active} onDeleted={() => setSelected(null)} onDirtyChange={(v) => { dirtyRef.current = v; }} /> : <div className={emptyState}>点「新增」从内置默认模板开始</div>}</main>
+      <main className="space-y-3">
+        <HintBubble
+          storageKey="lce.hint.rubrics"
+          title="评分标准"
+        >
+          评分标准分两部分：规则基础分（从记录自动算，不调模型）和 LLM 裁判分（调模型逐条或整场评分）。用顶部的滑杆调整两部分占比，每项的权重用滑杆调整。已预置默认模板，开箱即用。
+        </HintBubble>
+        {active ? <RubricEditor key={active.id} row={active} onDeleted={() => setSelected(null)} onDirtyChange={(v) => { dirtyRef.current = v; }} /> : <div className={emptyState}>点「新增」从内置默认模板开始</div>}
+      </main>
     </div>
   );
 }
