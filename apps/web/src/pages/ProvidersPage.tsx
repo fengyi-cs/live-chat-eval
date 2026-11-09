@@ -1,4 +1,4 @@
-import { PROVIDER_KIND_LABELS, PROVIDER_KINDS, type ChatMessage, type ProbeAttempt, type ProviderKind } from '@lce/core';
+import { PROVIDER_KIND_LABELS, PROVIDER_KINDS, type ProbeAttempt, type ProviderKind } from '@lce/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckIcon, ChevronsUpDownIcon, PlusIcon, XIcon } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -111,11 +111,6 @@ function ProviderForm({
   );
 }
 
-interface Bubble extends ChatMessage {
-  info?: ChatDone;
-  error?: string;
-}
-
 function ModelSelector({ choices, value, onChange }: { choices: string[]; value: string; onChange: (m: string) => void }) {
   const [open, setOpen] = useState(false);
   return (
@@ -133,9 +128,9 @@ function ModelSelector({ choices, value, onChange }: { choices: string[]; value:
       </PopoverTrigger>
       <PopoverContent className="w-(--radix-popover-trigger-width) min-w-56 p-0" align="start">
         <Command>
-          <CommandInput placeholder="搜索模型" />
+          <CommandInput placeholder="搜索模型，或输入模型 ID 测试" />
           <CommandList className="max-h-64">
-            <CommandEmpty>没有匹配的模型</CommandEmpty>
+            <CommandEmpty>没有匹配的模型，可输入完整模型 ID 后回车</CommandEmpty>
             {choices.map((m) => (
               <CommandItem key={m} value={m} onSelect={() => { onChange(m); setOpen(false); }}>
                 <CheckIcon className={cn('size-4', m === value ? 'opacity-100' : 'opacity-0')} />
@@ -149,38 +144,62 @@ function ModelSelector({ choices, value, onChange }: { choices: string[]; value:
   );
 }
 
-function ChatTester({ provider }: { provider: Provider }) {
+interface PingResult {
+  status: 'ok' | 'error';
+  reply: string;
+  model: string;
+  firstTokenMs: number | null;
+  totalMs: number;
+  error?: string;
+}
+
+function PingPongTest({ provider }: { provider: Provider }) {
   const choices = provider.enabledModels.length ? provider.enabledModels : provider.models.map((m) => m.id);
-  const [model, setModel] = useState(choices[0] ?? '');
-  const [system, setSystem] = usePersistentState('lce.tester.system', '');
-  const [temperature, setTemperature] = usePersistentState('lce.tester.temperature', 0.8);
-  const [draft, setDraft] = useState('');
-  const [log, setLog] = useState<Bubble[]>([]);
+  const [model, setModel] = usePersistentState('lce.ping.model', '');
+  const [result, setResult] = useState<PingResult | null>(null);
   const [busy, setBusy] = useState(false);
   const abort = useRef<AbortController | null>(null);
 
+  const effectiveModel = model && choices.includes(model) ? model : choices[0] ?? model;
   useEffect(() => setModel((m) => (m && choices.includes(m) ? m : (choices[0] ?? ''))), [provider.id, choices.join('\n')]);
   useEffect(() => () => abort.current?.abort(), []);
 
-  const send = async () => {
-    const text = draft.trim();
-    if (!text || busy) return;
-    const history: ChatMessage[] = [...log.filter((b) => !b.error).map(({ role, content }) => ({ role, content })), { role: 'user', content: text }];
-    setDraft('');
-    setLog((l) => [...l, { role: 'user', content: text }, { role: 'assistant', content: '' }]);
+  const run = async () => {
+    if (busy || !effectiveModel) return;
+    setResult(null);
     setBusy(true);
     const ctrl = new AbortController();
     abort.current = ctrl;
-    const patchLast = (fn: (b: Bubble) => Bubble) => setLog((l) => [...l.slice(0, -1), fn(l.at(-1)!)]);
+    let reply = '';
+    const meta: { done: ChatDone | null } = { done: null };
     try {
       await api.streamChat(
         provider.id,
-        { model, temperature, messages: system.trim() ? [{ role: 'system', content: system }, ...history] : history },
-        { onDelta: (t) => patchLast((b) => ({ ...b, content: b.content + t })), onDone: (info) => patchLast((b) => ({ ...b, info })) },
+        { model: effectiveModel, messages: [{ role: 'user', content: 'ping' }] },
+        {
+          onDelta: (t) => { reply += t; },
+          onDone: (i: ChatDone) => { meta.done = i; },
+        },
         ctrl.signal,
       );
+      setResult({
+        status: 'ok',
+        reply: reply.trim() || '(空回复)',
+        model: meta.done?.model ?? effectiveModel,
+        firstTokenMs: meta.done?.firstTokenMs ?? null,
+        totalMs: meta.done?.totalMs ?? 0,
+      });
     } catch (err) {
-      if (!ctrl.signal.aborted) patchLast((b) => ({ ...b, error: (err as Error).message }));
+      if (!ctrl.signal.aborted) {
+        setResult({
+          status: 'error',
+          reply: '',
+          model: effectiveModel,
+          firstTokenMs: null,
+          totalMs: 0,
+          error: (err as Error).message,
+        });
+      }
     } finally {
       setBusy(false);
     }
@@ -188,61 +207,48 @@ function ChatTester({ provider }: { provider: Provider }) {
 
   return (
     <section className={`${card} space-y-3`}>
-      <div className="flex flex-wrap items-end gap-2">
-        <div className="mr-auto">
-          <h2 className="text-sm font-medium">模型连通性测试</h2>
-          <p className="text-xs text-neutral-400">只验证接口可用，不使用主播人设，不保存历史记录</p>
-        </div>
-        <label className="text-xs text-neutral-500">
-          温度 {temperature.toFixed(1)}
-          <input type="range" min={0} max={2} step={0.1} value={temperature} onChange={(e) => setTemperature(Number(e.target.value))} className="ml-2 align-middle" />
-        </label>
-        <button type="button" className={secondaryBtn} onClick={() => setLog([])} disabled={busy || log.length === 0}>
-          清空
-        </button>
-      </div>
-      <div className="space-y-1">
-        <span className="text-xs text-neutral-500">模型（默认列出模型池，可更换其他模型测试）</span>
-        <ModelSelector choices={choices} value={model} onChange={setModel} />
-      </div>
-      <label className="block space-y-1">
-        <span className="text-xs text-neutral-500">系统提示词（可选，例如主播人设）</span>
-        <textarea className={`${input} min-h-16`} value={system} onChange={(e) => setSystem(e.target.value)} />
-      </label>
-      <ul className="max-h-[50vh] space-y-2 overflow-y-auto" aria-live="polite">
-        {log.map((b, i) => (
-          <li key={i} className={`flex ${b.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${b.role === 'user' ? 'bg-indigo-50 dark:bg-indigo-950' : 'bg-neutral-100 dark:bg-neutral-800'}`}>
-              <p className="whitespace-pre-wrap">{b.content || (b.error ? '' : '…')}</p>
-              {b.error && <p className="text-xs text-red-600">{b.error}</p>}
-              {b.info && (
-                <p className="mt-1 text-xs text-neutral-500">
-                  {b.info.model} · 首字 {b.info.firstTokenMs ?? '-'}ms · 总耗时 {b.info.totalMs}ms
-                  {b.info.usage?.outputTokens !== undefined && ` · ${b.info.usage.inputTokens ?? '?'}→${b.info.usage.outputTokens} tokens`}
-                </p>
-              )}
-            </div>
-          </li>
-        ))}
-      </ul>
-      <form
-        className="flex gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void send();
-        }}
-      >
-        <input className={input} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={model ? '发一条弹幕试试' : '先选择模型'} />
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="mr-auto text-sm font-medium">模型连通性测试</h2>
         {busy ? (
           <button type="button" className={secondaryBtn} onClick={() => abort.current?.abort()}>
-            停止
+            取消
           </button>
         ) : (
-          <button type="submit" className={primaryBtn} disabled={!draft.trim() || !model}>
-            发送
+          <button type="button" className={primaryBtn} disabled={!effectiveModel} onClick={() => void run()}>
+            测试连通性
           </button>
         )}
-      </form>
+      </div>
+      <p className="text-xs text-neutral-400">点击按钮自动发送 ping，验证模型是否可用</p>
+      <div className="space-y-1">
+        <span className="text-xs text-neutral-500">模型（默认列出模型池，可手动输入其他模型 ID）</span>
+        <ModelSelector choices={choices} value={effectiveModel} onChange={setModel} />
+      </div>
+      {busy && (
+        <div className="flex items-center gap-2 text-sm text-neutral-500">
+          <span className="size-2 animate-pulse rounded-full bg-sky-400" />
+          正在测试…
+        </div>
+      )}
+      {result && !busy && (
+        <div className={`rounded-lg border p-3 text-sm ${result.status === 'ok' ? 'border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-950/50' : 'border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/50'}`}>
+          {result.status === 'ok' ? (
+            <>
+              <p className="font-medium text-green-700 dark:text-green-300">✓ 连通正常</p>
+              <p className="mt-1 whitespace-pre-wrap text-neutral-700 dark:text-neutral-300">{result.reply}</p>
+              <p className="mt-1 text-xs text-neutral-500">
+                {result.model} · 首字 {result.firstTokenMs ?? '-'}ms · 总耗时 {result.totalMs}ms
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="font-medium text-red-700 dark:text-red-300">✗ 连接失败</p>
+              <p className="mt-1 whitespace-pre-wrap text-red-600 dark:text-red-400">{result.error}</p>
+              <p className="mt-1 text-xs text-neutral-500">{result.model}</p>
+            </>
+          )}
+        </div>
+      )}
     </section>
   );
 }
@@ -441,7 +447,7 @@ function ProviderDetail({ provider, onEdit, autoDetect }: { provider: Provider; 
         {remove.error && <p className="text-xs text-red-600">{remove.error.message}</p>}
       </section>
       <ModelPool provider={provider} autoDetect={autoDetect} />
-      <ChatTester provider={provider} />
+      <PingPongTest provider={provider} />
     </div>
   );
 }
