@@ -118,7 +118,7 @@ function SortableDimRow({ id, d, onEdit }: SortableDimRowProps) {
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ${
         isDragging
-          ? 'bg-sky-50 border-sky-200 dark:bg-sky-950/30 dark:border-sky-800'
+          ? 'bg-indigo-50 border-indigo-200 dark:bg-indigo-950/30 dark:border-indigo-800'
           : d.enabled
             ? 'border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900'
             : 'border-dashed border-neutral-200 bg-neutral-50 opacity-60 dark:border-neutral-800 dark:bg-neutral-950'
@@ -146,6 +146,60 @@ function SortableDimRow({ id, d, onEdit }: SortableDimRowProps) {
       >
         <PencilIcon className="size-3.5" />
       </button>
+    </div>
+  );
+}
+
+function DonutChart({ ruleWeight, llmWeight }: { ruleWeight: number; llmWeight: number }) {
+  const r = 40;
+  const cx = 56;
+  const cy = 56;
+  const sw = 16;
+  const circ = 2 * Math.PI * r;
+  const total = (ruleWeight + llmWeight) || 1;
+  const ruleLen = (ruleWeight / total) * circ;
+  const llmLen = (llmWeight / total) * circ;
+  const baseOffset = circ / 4;
+
+  return (
+    <div className="flex items-center gap-5">
+      <svg width="112" height="112" viewBox="0 0 112 112" aria-hidden>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--color-border)" strokeWidth={sw} />
+        {ruleWeight > 0 && (
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke="#10b981" strokeWidth={sw}
+            strokeDasharray={`${ruleLen} ${circ - ruleLen}`} strokeDashoffset={baseOffset} />
+        )}
+        {llmWeight > 0 && (
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke="#6366f1" strokeWidth={sw}
+            strokeDasharray={`${llmLen} ${circ - llmLen}`} strokeDashoffset={baseOffset - ruleLen} />
+        )}
+        <text x={cx} y={cy - 4} textAnchor="middle" fontSize="11" fill="currentColor" className="text-neutral-600 dark:text-neutral-400">
+          {ruleWeight}:{llmWeight}
+        </text>
+        <text x={cx} y={cy + 9} textAnchor="middle" fontSize="9" fill="currentColor" className="text-neutral-400">
+          规则:LLM
+        </text>
+      </svg>
+      <div className="min-w-0 flex-1 space-y-3">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 text-xs text-neutral-500">
+            <span className="inline-block size-2.5 rounded-full bg-emerald-500" />规则基础分
+          </div>
+          <div className="flex items-center gap-2">
+            <input type="range" min={0} max={10} step={0.5} value={ruleWeight} className="flex-1 accent-emerald-500" readOnly />
+            <span className="w-6 text-sm font-semibold tabular-nums">{ruleWeight}</span>
+          </div>
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 text-xs text-neutral-500">
+            <span className="inline-block size-2.5 rounded-full bg-indigo-500" />LLM 裁判分
+          </div>
+          <div className="flex items-center gap-2">
+            <input type="range" min={0} max={10} step={0.5} value={llmWeight} className="flex-1 accent-indigo-500" readOnly />
+            <span className="w-6 text-sm font-semibold tabular-nums">{llmWeight}</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -185,29 +239,54 @@ function RubricEditor({ row, onDeleted }: { row: RubricRow; onDeleted: () => voi
 
   return (
     <div className="space-y-4">
-      <section className={`${card} flex flex-wrap items-end gap-2`}>
-        <Field label="模板名称">
-          <input className={input} value={name} onChange={(e) => setName(e.target.value)} maxLength={40} />
-        </Field>
-        <div className="w-28">
-          <Num label="规则分权重" value={r.ruleWeight} onChange={(ruleWeight) => setR({ ...r, ruleWeight })} />
+      <section className={`${card} space-y-4`}>
+        <div className="flex flex-wrap items-end gap-2">
+          <Field label="模板名称">
+            <input className={input} value={name} onChange={(e) => setName(e.target.value)} maxLength={40} />
+          </Field>
+          <div className="ml-auto flex flex-wrap gap-2">
+            {dirty && <span className="self-center text-xs text-amber-600">有未保存的修改</span>}
+            <button type="button" className={secondaryBtn} onClick={() => confirm('恢复成内置默认模板？') && setR(cloneRubric(DEFAULT_RUBRIC))}>
+              恢复默认
+            </button>
+            <button type="button" className={primaryBtn} disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
+              保存
+            </button>
+            <button type="button" className={`${secondaryBtn} text-red-600`} onClick={() => confirm(`删除模板「${row.name}」？已有的评估报告不受影响。`) && remove.mutate()}>
+              删除
+            </button>
+          </div>
+          {save.error && <p className="w-full text-xs text-red-600">{save.error.message}</p>}
         </div>
-        <div className="w-28">
-          <Num label="LLM 分权重" value={r.llmWeight} onChange={(llmWeight) => setR({ ...r, llmWeight })} />
+
+        <div className="grid gap-4 border-t border-neutral-100 pt-4 dark:border-neutral-800 sm:grid-cols-2">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-xs text-neutral-500">
+              <span className="inline-block size-2.5 rounded-full bg-emerald-500" />规则分权重
+            </div>
+            <div className="flex items-center gap-2">
+              <input type="range" min={0} max={10} step={0.5} value={r.ruleWeight}
+                onChange={(e) => setR({ ...r, ruleWeight: Number(e.target.value) })}
+                className="flex-1 accent-emerald-500" />
+              <span className="w-7 text-sm font-semibold tabular-nums">{r.ruleWeight}</span>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-xs text-neutral-500">
+              <span className="inline-block size-2.5 rounded-full bg-indigo-500" />LLM 裁判分权重
+            </div>
+            <div className="flex items-center gap-2">
+              <input type="range" min={0} max={10} step={0.5} value={r.llmWeight}
+                onChange={(e) => setR({ ...r, llmWeight: Number(e.target.value) })}
+                className="flex-1 accent-indigo-500" />
+              <span className="w-7 text-sm font-semibold tabular-nums">{r.llmWeight}</span>
+            </div>
+          </div>
         </div>
-        <div className="ml-auto flex flex-wrap gap-2">
-          {dirty && <span className="self-center text-xs text-amber-600">有未保存的修改</span>}
-          <button type="button" className={secondaryBtn} onClick={() => confirm('恢复成内置默认模板？') && setR(cloneRubric(DEFAULT_RUBRIC))}>
-            恢复默认
-          </button>
-          <button type="button" className={primaryBtn} disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
-            保存
-          </button>
-          <button type="button" className={`${secondaryBtn} text-red-600`} onClick={() => confirm(`删除模板「${row.name}」？已有的评估报告不受影响。`) && remove.mutate()}>
-            删除
-          </button>
+
+        <div className="border-t border-neutral-100 pt-4 dark:border-neutral-800">
+          <DonutChart ruleWeight={r.ruleWeight} llmWeight={r.llmWeight} />
         </div>
-        {save.error && <p className="w-full text-xs text-red-600">{save.error.message}</p>}
       </section>
 
       <section className={`${card} space-y-3`}>
@@ -215,38 +294,58 @@ function RubricEditor({ row, onDeleted }: { row: RubricRow; onDeleted: () => voi
         <p className="text-xs text-neutral-500">直接从记录里计算，不调用模型。每项 0-100 分，按权重合成规则分。</p>
         <div className="grid gap-2">
           {RULE_KEYS.map((k) => (
-            <div key={k} className="flex flex-wrap items-end gap-3 rounded-lg border border-neutral-200 p-2 text-sm dark:border-neutral-800">
-              <label className="flex w-28 items-center gap-1 self-center">
-                <input type="checkbox" checked={r.rules[k].enabled} onChange={(e) => setRule(k, { enabled: e.target.checked })} />
-                {RULE_LABELS[k]}
-              </label>
-              <div className="w-20">
-                <Num label="权重" value={r.rules[k].weight} step={0.5} onChange={(weight) => setRule(k, { weight })} />
+            <div key={k} className={`rounded-xl border p-3 transition-colors ${
+              r.rules[k].enabled
+                ? 'border-emerald-200 bg-emerald-50/50 dark:border-emerald-800/60 dark:bg-emerald-950/20'
+                : 'border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900'
+            }`}>
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex min-w-32 flex-1 cursor-pointer items-center gap-2">
+                  <input type="checkbox" checked={r.rules[k].enabled} onChange={(e) => setRule(k, { enabled: e.target.checked })} className="size-4" />
+                  <span className={`text-sm font-medium ${r.rules[k].enabled ? 'text-neutral-800 dark:text-neutral-100' : 'text-neutral-400'}`}>
+                    {RULE_LABELS[k]}
+                  </span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-neutral-400">权重</span>
+                  <input type="range" min={0} max={10} step={0.5}
+                    value={r.rules[k].weight}
+                    disabled={!r.rules[k].enabled}
+                    onChange={(e) => setRule(k, { weight: Number(e.target.value) })}
+                    className="w-24 accent-emerald-500 disabled:opacity-30" />
+                  <span className="w-7 text-sm font-medium tabular-nums text-neutral-500">{r.rules[k].weight}</span>
+                </div>
               </div>
-              {k === 'latency' && (
+              {r.rules[k].enabled && (
                 <>
-                  <div className="w-24"><Num label="满分秒数 ≤" value={r.rules.latency.goodSec} onChange={(goodSec) => setRule('latency', { goodSec })} /></div>
-                  <div className="w-24"><Num label="0 分秒数 ≥" value={r.rules.latency.badSec} onChange={(badSec) => setRule('latency', { badSec })} /></div>
-                </>
-              )}
-              {k === 'length' && (
-                <>
-                  <div className="w-24"><Num label="最少字数" value={r.rules.length.minChars} onChange={(minChars) => setRule('length', { minChars })} /></div>
-                  <div className="w-24"><Num label="最多字数" value={r.rules.length.maxChars} onChange={(maxChars) => setRule('length', { maxChars })} /></div>
-                </>
-              )}
-              {k === 'repetition' && <div className="w-28"><Num label="和前几条比" value={r.rules.repetition.window} onChange={(window) => setRule('repetition', { window })} /></div>}
-              {k === 'aiPhrases' && (
-                <>
-                  <div className="w-24"><Num label="每命中扣分" value={r.rules.aiPhrases.penaltyPerHit} onChange={(penaltyPerHit) => setRule('aiPhrases', { penaltyPerHit })} /></div>
-                  <label className="block min-w-60 flex-1 space-y-1">
-                    <span className="text-xs text-neutral-500">AI 腔词库（每行一个）</span>
-                    <textarea
-                      className={`${input} min-h-20 font-mono text-xs`}
-                      value={r.rules.aiPhrases.phrases.join('\n')}
-                      onChange={(e) => setRule('aiPhrases', { phrases: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) })}
-                    />
-                  </label>
+                  {k === 'latency' && (
+                    <div className="mt-2.5 flex flex-wrap gap-3 border-t border-emerald-100 pt-2.5 dark:border-emerald-800/30">
+                      <div className="w-28"><Num label="满分秒数 ≤" value={r.rules.latency.goodSec} onChange={(goodSec) => setRule('latency', { goodSec })} /></div>
+                      <div className="w-28"><Num label="0 分秒数 ≥" value={r.rules.latency.badSec} onChange={(badSec) => setRule('latency', { badSec })} /></div>
+                    </div>
+                  )}
+                  {k === 'length' && (
+                    <div className="mt-2.5 flex flex-wrap gap-3 border-t border-emerald-100 pt-2.5 dark:border-emerald-800/30">
+                      <div className="w-24"><Num label="最少字数" value={r.rules.length.minChars} onChange={(minChars) => setRule('length', { minChars })} /></div>
+                      <div className="w-24"><Num label="最多字数" value={r.rules.length.maxChars} onChange={(maxChars) => setRule('length', { maxChars })} /></div>
+                    </div>
+                  )}
+                  {k === 'repetition' && (
+                    <div className="mt-2.5 flex flex-wrap gap-3 border-t border-emerald-100 pt-2.5 dark:border-emerald-800/30">
+                      <div className="w-28"><Num label="和前几条比" value={r.rules.repetition.window} onChange={(window) => setRule('repetition', { window })} /></div>
+                    </div>
+                  )}
+                  {k === 'aiPhrases' && (
+                    <div className="mt-2.5 flex flex-wrap gap-3 border-t border-emerald-100 pt-2.5 dark:border-emerald-800/30">
+                      <div className="w-28"><Num label="每命中扣分" value={r.rules.aiPhrases.penaltyPerHit} onChange={(penaltyPerHit) => setRule('aiPhrases', { penaltyPerHit })} /></div>
+                      <label className="block min-w-60 flex-1 space-y-1">
+                        <span className="text-xs text-neutral-500">AI 腔词库（每行一个）</span>
+                        <textarea className={`${input} min-h-20 font-mono text-xs`}
+                          value={r.rules.aiPhrases.phrases.join('\n')}
+                          onChange={(e) => setRule('aiPhrases', { phrases: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) })} />
+                      </label>
+                    </div>
+                  )}
                 </>
               )}
             </div>

@@ -1,11 +1,12 @@
 import { PROVIDER_KIND_LABELS, PROVIDER_KINDS, type ChatMessage, type ProbeAttempt, type ProviderKind } from '@lce/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckIcon, PlusIcon } from 'lucide-react';
+import { CheckIcon, ChevronsUpDownIcon, PlusIcon, XIcon } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { api, type ChatDone, type Provider, type ProviderInput } from '../api.ts';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '../components/ui/command.tsx';
+import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover.tsx';
 import { cn } from '../lib/utils.ts';
-import { card, input, primaryBtn, secondaryBtn } from '../ui.ts';
+import { card, input, listItem, primaryBtn, secondaryBtn } from '../ui.ts';
 import { usePersistentState } from '../usePersistentState.ts';
 
 function useDebounced<T>(value: T, ms: number) {
@@ -114,6 +115,39 @@ interface Bubble extends ChatMessage {
   error?: string;
 }
 
+function ModelSelector({ choices, value, onChange }: { choices: string[]; value: string; onChange: (m: string) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          role="combobox"
+          aria-expanded={open}
+          className="flex w-full items-center justify-between gap-2 rounded-lg border border-neutral-300 bg-transparent px-2 py-1.5 text-left text-sm dark:border-neutral-700"
+        >
+          <span className={cn('truncate', !value && 'text-neutral-400')}>{value || '选择模型'}</span>
+          <ChevronsUpDownIcon className="size-4 shrink-0 opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-(--radix-popover-trigger-width) min-w-56 p-0" align="start">
+        <Command>
+          <CommandInput placeholder="搜索模型" />
+          <CommandList className="max-h-64">
+            <CommandEmpty>没有匹配的模型</CommandEmpty>
+            {choices.map((m) => (
+              <CommandItem key={m} value={m} onSelect={() => { onChange(m); setOpen(false); }}>
+                <CheckIcon className={cn('size-4', m === value ? 'opacity-100' : 'opacity-0')} />
+                <span className="truncate">{m}</span>
+              </CommandItem>
+            ))}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function ChatTester({ provider }: { provider: Provider }) {
   const choices = provider.enabledModels.length ? provider.enabledModels : provider.models.map((m) => m.id);
   const [model, setModel] = useState(choices[0] ?? '');
@@ -166,15 +200,10 @@ function ChatTester({ provider }: { provider: Provider }) {
           清空
         </button>
       </div>
-      <label className="block space-y-1">
-        <span className="text-xs text-neutral-500">模型（默认列出模型池，也可以手动输入别的模型测试）</span>
-        <input className={input} list={`models-${provider.id}`} value={model} onChange={(e) => setModel(e.target.value)} placeholder="模型 ID" />
-        <datalist id={`models-${provider.id}`}>
-          {choices.map((m) => (
-            <option key={m} value={m} />
-          ))}
-        </datalist>
-      </label>
+      <div className="space-y-1">
+        <span className="text-xs text-neutral-500">模型（默认列出模型池，可更换其他模型测试）</span>
+        <ModelSelector choices={choices} value={model} onChange={setModel} />
+      </div>
       <label className="block space-y-1">
         <span className="text-xs text-neutral-500">系统提示词（可选，例如主播人设）</span>
         <textarea className={`${input} min-h-16`} value={system} onChange={(e) => setSystem(e.target.value)} />
@@ -182,7 +211,7 @@ function ChatTester({ provider }: { provider: Provider }) {
       <ul className="max-h-[50vh] space-y-2 overflow-y-auto" aria-live="polite">
         {log.map((b, i) => (
           <li key={i} className={`flex ${b.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${b.role === 'user' ? 'bg-sky-50 dark:bg-sky-950' : 'bg-neutral-100 dark:bg-neutral-800'}`}>
+            <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${b.role === 'user' ? 'bg-indigo-50 dark:bg-indigo-950' : 'bg-neutral-100 dark:bg-neutral-800'}`}>
               <p className="whitespace-pre-wrap">{b.content || (b.error ? '' : '…')}</p>
               {b.error && <p className="text-xs text-red-600">{b.error}</p>}
               {b.info && (
@@ -232,6 +261,7 @@ function AttemptList({ attempts }: { attempts: ProbeAttempt[] }) {
 function ModelPool({ provider, autoDetect }: { provider: Provider; autoDetect: boolean }) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
+  const [poolOpen, setPoolOpen] = useState(false);
   const [attempts, setAttempts] = useState<ProbeAttempt[] | null>(null);
   const refresh = useMutation({
     mutationFn: (detect: boolean) => api.refreshModels(provider.id, detect),
@@ -280,11 +310,9 @@ function ModelPool({ provider, autoDetect }: { provider: Provider; autoDetect: b
   );
 
   return (
-    <section className={`${card} space-y-2`}>
+    <section className={`${card} space-y-3`}>
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="mr-auto text-sm font-medium">
-          模型池 <span className="text-xs font-normal text-neutral-500">已启用 {provider.enabledModels.length} 个，回复配置和裁判只能选这里启用的模型</span>
-        </h3>
+        <h3 className="mr-auto text-sm font-medium">模型池</h3>
         <button type="button" className={secondaryBtn} disabled={refresh.isPending} onClick={() => refresh.mutate(false)}>
           {refresh.isPending ? '拉取中…' : '重新拉取'}
         </button>
@@ -292,6 +320,7 @@ function ModelPool({ provider, autoDetect }: { provider: Provider; autoDetect: b
           自动识别格式
         </button>
       </div>
+
       <p className="text-xs text-neutral-500">
         {refresh.isPending
           ? '正在拉取模型列表…'
@@ -299,8 +328,10 @@ function ModelPool({ provider, autoDetect }: { provider: Provider; autoDetect: b
             ? `列表里有 ${provider.models.length} 个模型，更新于 ${new Date(provider.modelsFetchedAt).toLocaleString('zh-CN')}`
             : '还没有拉取过模型列表'}
       </p>
+
       {refresh.error && <p className="text-xs text-red-600">{refresh.error.message}</p>}
       {savePool.error && <p className="text-xs text-red-600">{savePool.error.message}</p>}
+
       {fetchedEmpty && (
         <div className="space-y-1 rounded border border-amber-300 bg-amber-50 p-2 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
           <p className="text-xs">
@@ -309,28 +340,61 @@ function ModelPool({ provider, autoDetect }: { provider: Provider; autoDetect: b
           {attempts && <AttemptList attempts={attempts} />}
         </div>
       )}
-      <Command className="rounded border border-neutral-200 bg-transparent dark:border-neutral-800">
-        <CommandInput value={search} onValueChange={setSearch} placeholder="搜索模型，或输入模型 ID 手动添加" />
-        <CommandList className="max-h-72">
-          <CommandEmpty>{canAdd ? null : '没有匹配的模型'}</CommandEmpty>
-          {canAdd && (
-            <CommandGroup heading="手动添加">
-              <CommandItem
-                value={`__add__ ${term}`}
-                onSelect={() => {
-                  savePool.mutate([...provider.enabledModels, term]);
-                  setSearch('');
-                }}
-              >
-                <PlusIcon className="size-4" />
-                添加「{term}」到模型池
-              </CommandItem>
-            </CommandGroup>
+
+      {/* Selected model chips */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-start gap-1.5">
+          {provider.enabledModels.length === 0 ? (
+            <span className="text-xs text-neutral-400">暂无已启用模型，点「管理模型」添加</span>
+          ) : (
+            provider.enabledModels.map((m) => (
+              <span key={m} className="flex items-center gap-1 rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-1 text-xs text-indigo-700 dark:bg-indigo-950/50 dark:border-indigo-800 dark:text-indigo-300">
+                {m}
+                <button
+                  type="button"
+                  className="ml-0.5 rounded-full text-indigo-400 hover:text-indigo-600 dark:text-indigo-500 dark:hover:text-indigo-300"
+                  onClick={() => toggle(m)}
+                  aria-label={`移除 ${m}`}
+                >
+                  <XIcon className="size-3" />
+                </button>
+              </span>
+            ))
           )}
-          {manual.length > 0 && <CommandGroup heading="手动添加的模型">{manual.map((m) => item(m))}</CommandGroup>}
-          {provider.models.length > 0 && <CommandGroup heading="服务商返回的模型">{provider.models.map((m) => item(m.id, m.name))}</CommandGroup>}
-        </CommandList>
-      </Command>
+        </div>
+        <button
+          type="button"
+          className={`${secondaryBtn} text-xs`}
+          onClick={() => setPoolOpen((v) => !v)}
+        >
+          {poolOpen ? '收起模型列表 ▴' : `管理模型… ▾`}
+        </button>
+      </div>
+
+      {poolOpen && (
+        <Command className="rounded border border-neutral-200 bg-transparent dark:border-neutral-800">
+          <CommandInput value={search} onValueChange={setSearch} placeholder="搜索模型，或输入模型 ID 手动添加" />
+          <CommandList className="max-h-72">
+            <CommandEmpty>{canAdd ? null : '没有匹配的模型'}</CommandEmpty>
+            {canAdd && (
+              <CommandGroup heading="手动添加">
+                <CommandItem
+                  value={`__add__ ${term}`}
+                  onSelect={() => {
+                    savePool.mutate([...provider.enabledModels, term]);
+                    setSearch('');
+                  }}
+                >
+                  <PlusIcon className="size-4" />
+                  添加「{term}」到模型池
+                </CommandItem>
+              </CommandGroup>
+            )}
+            {manual.length > 0 && <CommandGroup heading="手动添加的模型">{manual.map((m) => item(m))}</CommandGroup>}
+            {provider.models.length > 0 && <CommandGroup heading="服务商返回的模型">{provider.models.map((m) => item(m.id, m.name))}</CommandGroup>}
+          </CommandList>
+        </Command>
+      )}
     </section>
   );
 }
@@ -402,9 +466,7 @@ export function ProvidersPage() {
                   setDetectFor(null);
                   setEditing(null);
                 }}
-                className={`w-full rounded px-2 py-1.5 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 ${
-                  p.id === active?.id && !editing ? 'bg-neutral-100 font-medium dark:bg-neutral-800' : ''
-                }`}
+                className={listItem(p.id === active?.id && !editing)}
               >
                 <span>{p.name}</span>
                 <span className="ml-2 text-xs text-neutral-500">

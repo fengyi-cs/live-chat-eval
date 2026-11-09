@@ -4,9 +4,11 @@ import { EvalsPage } from './pages/EvalsPage.tsx';
 import { ProvidersPage } from './pages/ProvidersPage.tsx';
 import { RubricsPage } from './pages/RubricsPage.tsx';
 import { LiveRoom } from './pages/LiveRoom.tsx';
+import { SessionsPage } from './pages/SessionsPage.tsx';
 
 const NAV = [
   { to: '/', label: '直播间', end: true },
+  { to: '/sessions', label: '场次库' },
   { to: '/evals', label: '评估分析' },
   { to: '/rubrics', label: '评分标准' },
   { to: '/settings', label: '设置' },
@@ -15,7 +17,7 @@ const NAV = [
 export const tabClass = ({ isActive }: { isActive: boolean }) =>
   `shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors ${
     isActive
-      ? 'border-sky-500 font-medium text-sky-700 dark:border-sky-400 dark:text-sky-300'
+      ? 'border-indigo-500 font-medium text-indigo-700 dark:border-indigo-400 dark:text-indigo-300'
       : 'border-transparent text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'
   }`;
 
@@ -34,7 +36,7 @@ export function App() {
       <header className="sticky top-0 z-10 border-b border-neutral-200 bg-white/90 px-4 pt-3 backdrop-blur-sm dark:border-neutral-800 dark:bg-neutral-950/90">
         <div className="mx-auto max-w-7xl">
           <div className="flex items-center gap-2">
-            <ActivityIcon className="size-5 text-sky-500" aria-hidden />
+            <ActivityIcon className="size-5 text-indigo-500" aria-hidden />
             <h1 className="text-base font-semibold tracking-tight">live-chat-eval</h1>
             <span className="ml-1 hidden text-xs text-neutral-400 sm:inline">直播间 AI 主播对话评估</span>
           </div>
@@ -50,6 +52,7 @@ export function App() {
       <div className="mx-auto max-w-7xl p-4">
         <Routes>
           <Route path="/" element={<LiveRoom />} />
+          <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/evals" element={<EvalsPage />} />
           <Route path="/rubrics" element={<RubricsPage />} />
           <Route path="/settings" element={<SettingsPage />} />

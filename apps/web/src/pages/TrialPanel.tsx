@@ -153,7 +153,7 @@ export function TrialPanel({ config }: { config: AnchorConfigSummary }) {
               </div>
             </div>
             <div className="flex justify-end">
-              <div className="max-w-[85%] rounded-lg bg-sky-50 px-3 py-2 text-sm dark:bg-sky-950">
+              <div className="max-w-[85%] rounded-lg bg-indigo-50 px-3 py-2 text-sm dark:bg-indigo-950">
                 <p className="whitespace-pre-wrap">{t.reply || (t.error ? '' : '…')}</p>
                 {t.error && <p className="text-xs text-red-600">{t.error}</p>}
                 {t.info && (

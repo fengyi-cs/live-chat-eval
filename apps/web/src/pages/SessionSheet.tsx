@@ -21,11 +21,11 @@ export function SessionSheet({ open, onOpenChange, onSelect }: Props) {
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-full flex-col sm:max-w-2xl">
-        <SheetHeader>
+      <SheetContent side="right" className="flex w-full flex-col overflow-hidden sm:max-w-2xl">
+        <SheetHeader className="shrink-0">
           <SheetTitle>场次库</SheetTitle>
         </SheetHeader>
-        <div className="flex min-h-0 flex-1 gap-0">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
           <div className="w-56 shrink-0 space-y-1 overflow-y-auto border-r border-neutral-200 p-3 dark:border-neutral-800">
             {sessions.isPending && <p className="text-sm text-neutral-500">加载中…</p>}
             {sessions.error && <p className="text-sm text-red-600">{sessions.error.message}</p>}
@@ -62,7 +62,7 @@ export function SessionSheet({ open, onOpenChange, onSelect }: Props) {
                 <button
                   type="button"
                   onClick={() => { onSelect(activeId); onOpenChange(false); }}
-                  className="mb-2 text-xs text-sky-600 hover:underline"
+                  className="mb-2 text-xs text-indigo-600 hover:underline"
                 >
                   打开此场次 →
                 </button>

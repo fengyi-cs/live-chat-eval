@@ -10,7 +10,7 @@ const MAX_PERSONA_FILE_BYTES = 1_000_000;
 const SOURCE_LABEL: Record<AnchorSource, string> = { import: '导入', manual: '手建' };
 
 const sourceTone: Record<AnchorSource, string> = {
-  import: 'bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-200',
+  import: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200',
   manual: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300',
 };
 

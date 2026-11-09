@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useReducer, useState } from 'react';
-import { api, type RunInfo } from '../api.ts';
-import { primaryBtn, secondaryBtn } from '../ui.ts';
+import { api, type AnchorConfigSummary, type RunInfo } from '../api.ts';
+import { primaryBtn, secondaryBtn, card, input } from '../ui.ts';
 import { usePersistentState } from '../usePersistentState.ts';
 import { paceOf, type PaceKey } from '../labels.ts';
 import { SessionView } from './SessionView.tsx';
@@ -21,6 +21,7 @@ import { ImportSheet } from './ImportSheet.tsx';
 import { SessionSheet } from './SessionSheet.tsx';
 import { ConfigSheet } from './ConfigSheet.tsx';
 import { AnchorDialog } from './AnchorDialog.tsx';
+import { ModelPicker } from '../components/ModelPicker.tsx';
 
 function ActiveSession({
   sessionId,
@@ -112,6 +113,23 @@ export function LiveRoom() {
   const [activeSheet, setActiveSheet] = useState<string | null>(null);
   const [booting, setBooting] = useState(false);
 
+  const [liveEvalEnabled, setLiveEvalEnabled] = usePersistentState('lce.room.liveEval', false);
+  const [liveEvalRubricId, setLiveEvalRubricId] = usePersistentState<string | null>('lce.room.liveEvalRubric', null);
+  const [liveEvalJudge, setLiveEvalJudge] = usePersistentState<{ providerId: string | null; model: string | null }>('lce.room.liveEvalJudge', { providerId: null, model: null });
+
+  const rubrics = useQuery({ queryKey: ['rubrics'], queryFn: api.rubrics });
+  const effectiveLiveEval = liveEvalEnabled && liveEvalRubricId && liveEvalJudge.providerId && liveEvalJudge.model
+    ? { rubricId: liveEvalRubricId, providerId: liveEvalJudge.providerId, model: liveEvalJudge.model }
+    : liveEvalEnabled && liveEvalRubricId
+      ? { rubricId: liveEvalRubricId }
+      : undefined;
+
+  useEffect(() => {
+    const handler = () => setActiveSheet('config');
+    window.addEventListener('lce:open-config', handler);
+    return () => window.removeEventListener('lce:open-config', handler);
+  }, []);
+
   const evals = useQuery({ queryKey: ['evals'], queryFn: () => api.evals() });
   const evalRunning = Boolean(evals.data?.some((e) => e.status === 'running'));
 
@@ -167,7 +185,7 @@ export function LiveRoom() {
       }
       setBooting(true);
       try {
-        const info = await api.startSim({ mode: 'live', anchorName: effectiveAnchor, configId: effectiveConfig });
+        const info = await api.startSim({ mode: 'live', anchorName: effectiveAnchor, configId: effectiveConfig, liveEval: effectiveLiveEval });
         setActive(info.sessionId);
         setAnchorName(info.anchorName);
         queryClient.invalidateQueries({ queryKey: ['sims'] });
@@ -184,7 +202,7 @@ export function LiveRoom() {
   return (
     <div className="flex h-[calc(100vh-7rem)] flex-col">
       <div className="flex min-h-0 flex-1 gap-1">
-      <LeftIcons activeSheet={activeSheet} onOpenSheet={handleOpenSheet} evalRunning={evalRunning} />
+      <LeftIcons activeSheet={activeSheet} onOpenSheet={handleOpenSheet} evalRunning={evalRunning} liveEvalEnabled={liveEvalEnabled} onToggleLiveEval={() => setLiveEvalEnabled(!liveEvalEnabled)} />
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
         {active ? (
@@ -208,6 +226,7 @@ export function LiveRoom() {
             <ChatAreaEmpty
               anchorName={anchorName}
               configId={configId}
+              configs={configs.data}
               onSend={handleSendDanmaku}
               onOpenScript={() => handleOpenSheet('script')}
               onOpenAnchors={() => handleOpenSheet('anchors')}
@@ -219,7 +238,32 @@ export function LiveRoom() {
 
       <RightIcons activeSheet={activeSheet} onOpenSheet={handleOpenSheet} />
       </div>
-      <MobileIconBar activeSheet={activeSheet} onOpenSheet={handleOpenSheet} evalRunning={evalRunning} />
+
+      {!active && liveEvalEnabled && (
+        <div className={`${card} mx-1 mt-1 space-y-2 rounded-xl border-indigo-200 bg-indigo-50/50 dark:border-indigo-800/50 dark:bg-indigo-950/20`}>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300">实时评估配置</span>
+            <p className="text-xs text-neutral-500">每句主播回复生成后自动打分并显示在消息上</p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="block space-y-1">
+              <span className="text-xs text-neutral-500">评分标准</span>
+              <select className={input} value={liveEvalRubricId ?? ''} onChange={(e) => setLiveEvalRubricId(e.target.value || null)}>
+                <option value="">请选择评分标准</option>
+                {rubrics.data?.map((r) => (
+                  <option key={r.id} value={r.id}>{r.name}</option>
+                ))}
+              </select>
+            </label>
+            <div className="space-y-1">
+              <span className="text-xs text-neutral-500">裁判模型（可选，仅含规则评分时留空）</span>
+              <ModelPicker value={liveEvalJudge} onChange={setLiveEvalJudge} placeholder="使用规则评分，无需模型" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <MobileIconBar activeSheet={activeSheet} onOpenSheet={handleOpenSheet} evalRunning={evalRunning} liveEvalEnabled={liveEvalEnabled} onToggleLiveEval={() => setLiveEvalEnabled(!liveEvalEnabled)} />
 
       <ScriptSheet
         open={activeSheet === 'script'}
@@ -260,6 +304,7 @@ export function LiveRoom() {
 function ChatAreaEmpty({
   anchorName,
   configId,
+  configs,
   onSend,
   onOpenScript,
   onOpenAnchors,
@@ -267,12 +312,15 @@ function ChatAreaEmpty({
 }: {
   anchorName: string | null;
   configId: string | null;
+  configs: AnchorConfigSummary[] | undefined;
   onSend: (speaker: string, text: string) => Promise<void>;
   onOpenScript: () => void;
   onOpenAnchors: () => void;
   onOpenConfig: () => void;
 }) {
-  const ready = anchorName && configId;
+  const selectedConfig = configs?.find((c) => c.id === configId);
+  const configReady = Boolean(selectedConfig?.modelAvailable);
+  const ready = anchorName && configReady;
   const steps = [
     {
       done: Boolean(anchorName),
@@ -283,10 +331,14 @@ function ChatAreaEmpty({
       ) : null,
     },
     {
-      done: Boolean(configId),
-      label: '选择回复方案',
-      desc: configId ? '已选择' : '尚未配置',
-      action: anchorName && !configId ? (
+      done: configReady,
+      label: '回复方案',
+      desc: configReady
+        ? (selectedConfig?.name ?? '已配置')
+        : configId
+          ? '回复方案未配置模型 — 请前往设置'
+          : '尚未选择回复方案',
+      action: !configReady ? (
         <button type="button" className={secondaryBtn} onClick={onOpenConfig}>配置回复</button>
       ) : null,
     },

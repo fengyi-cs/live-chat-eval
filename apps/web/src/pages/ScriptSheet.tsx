@@ -56,7 +56,7 @@ function SortableRow({ id, event }: SortableRowProps) {
     <tr
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={`border-t border-neutral-100 align-top dark:border-neutral-800 ${isDragging ? 'opacity-50 bg-sky-50 dark:bg-sky-950/30' : ''}`}
+      className={`border-t border-neutral-100 align-top dark:border-neutral-800 ${isDragging ? 'opacity-50 bg-indigo-50 dark:bg-indigo-950/30' : ''}`}
     >
       <td className="py-1 pr-1 w-5">
         <button

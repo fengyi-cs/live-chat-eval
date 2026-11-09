@@ -1,7 +1,7 @@
 import { RULE_KEYS, RULE_LABELS, turnLlmScore } from '@lce/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
-import { api, type EvalDetail, type EvalEvent, type EvalItemView } from '../api.ts';
+import { useEffect, useMemo, useState } from 'react';
+import { api, type EvalDetail, type EvalEvent, type EvalItemView, type StoredMessage } from '../api.ts';
 import { ModelPicker } from '../components/ModelPicker.tsx';
 import { card, emptyState, input, listItem, primaryBtn, secondaryBtn } from '../ui.ts';
 import { usePersistentState } from '../usePersistentState.ts';
@@ -146,11 +146,86 @@ function TurnRow({ it, detail }: { it: EvalItemView; detail: EvalDetail }) {
   );
 }
 
+function StreamView({ d, messages }: { d: EvalDetail; messages: StoredMessage[] }) {
+  const [expandedSeq, setExpandedSeq] = useState<number | null>(null);
+  const evalBySeq = useMemo(() => {
+    const m = new Map<number, EvalItemView>();
+    for (const it of d.items) if (it.kind === 'turn' && it.seq !== null) m.set(it.seq, it);
+    return m;
+  }, [d.items]);
+
+  return (
+    <div className="space-y-2">
+      {messages.map((msg) => {
+        const isAnchor = msg.role === 'anchor';
+        const evalItem = isAnchor && msg.seq !== null ? evalBySeq.get(msg.seq) : undefined;
+        const llm = evalItem?.status === 'done' ? turnLlmScore(d.rubric, evalItem) : null;
+        const expanded = expandedSeq === msg.seq;
+        const rules = evalItem?.seq === null ? undefined : d.rules.turns[evalItem?.seq ?? -1];
+
+        return (
+          <div key={msg.id} className={`flex ${isAnchor ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[78%] space-y-1.5 rounded-xl px-3 py-2 text-sm ${
+              isAnchor
+                ? 'rounded-br-sm bg-indigo-50 dark:bg-indigo-950/40'
+                : 'rounded-bl-sm bg-neutral-100 dark:bg-neutral-800'
+            }`}>
+              {!isAnchor && <p className="text-xs font-medium text-neutral-400">{msg.speaker}</p>}
+              <p className="whitespace-pre-wrap leading-relaxed">{msg.text}</p>
+              {isAnchor && evalItem && (
+                <button
+                  type="button"
+                  onClick={() => setExpandedSeq(expanded ? null : msg.seq)}
+                  className={`rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
+                    llm === null
+                      ? 'bg-neutral-200 text-neutral-500 dark:bg-neutral-700'
+                      : llm >= 80
+                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300'
+                        : llm >= 60
+                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300'
+                          : 'bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-300'
+                  }`}
+                >
+                  {evalItem.status === 'pending' ? '评估中…' : evalItem.status === 'skipped' ? '仅规则' : `LLM ${fmt(llm)}`}
+                  {expanded ? ' ▲' : ' ▼'}
+                </button>
+              )}
+              {isAnchor && expanded && evalItem && (
+                <div className="mt-1 space-y-1 border-t border-indigo-100 pt-2 text-xs dark:border-indigo-800/40">
+                  {d.rubric.dimensions.filter((dim) => evalItem.scores?.[dim.key]).map((dim) => (
+                    <div key={dim.key}>
+                      <span className="font-medium">{dim.name} {evalItem.scores![dim.key]!.score}</span>
+                      <span className="text-neutral-500"> · {evalItem.scores![dim.key]!.reason}</span>
+                    </div>
+                  ))}
+                  {rules && rules.latency && <div className="text-neutral-500">延迟 {((rules.latency.value ?? 0) / 1000).toFixed(1)}s</div>}
+                  {rules?.aiPhrases?.hits?.length ? <div className="text-amber-600">AI 腔：{rules.aiPhrases.hits.join('、')}</div> : null}
+                  {evalItem.status === 'error' && <p className="text-red-600">{evalItem.error}</p>}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function Report({ id, onDeleted }: { id: string; onDeleted: () => void }) {
   const qc = useQueryClient();
   const detail = useQuery({ queryKey: ['eval', id], queryFn: () => api.evalDetail(id) });
   const [live, setLive] = useState<EvalDetail | null>(null);
   const running = (live ?? detail.data)?.status === 'running';
+  const [viewMode, setViewMode] = useState<'detail' | 'stream'>('detail');
+  const [page, setPage] = useState(1);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const sessionId = (live ?? detail.data)?.sessionId ?? '';
+  const sessionQ = useQuery({
+    queryKey: ['session', sessionId],
+    queryFn: () => api.session(sessionId),
+    enabled: Boolean(sessionId) && viewMode === 'stream',
+  });
 
   useEffect(() => {
     if (!running) return;
@@ -187,6 +262,18 @@ function Report({ id, onDeleted }: { id: string; onDeleted: () => void }) {
 
   return (
     <div className="space-y-4">
+      <div className="flex gap-2">
+        <button
+          type="button"
+          className={viewMode === 'detail' ? primaryBtn : secondaryBtn}
+          onClick={() => setViewMode('detail')}
+        >详细分析</button>
+        <button
+          type="button"
+          className={viewMode === 'stream' ? primaryBtn : secondaryBtn}
+          onClick={() => setViewMode('stream')}
+        >流式查看</button>
+      </div>
       <section className={`${card} space-y-3`}>
         <div className="flex flex-wrap items-start gap-2">
           <div className="mr-auto">
@@ -260,14 +347,57 @@ function Report({ id, onDeleted }: { id: string; onDeleted: () => void }) {
         </div>
       </section>
 
-      <section className={`${card} space-y-2`}>
-        <h3 className="text-sm font-medium">逐条明细</h3>
-        <ul className="space-y-2">
-          {d.items.map((it) => (
-            <TurnRow key={it.id} it={it} detail={d} />
-          ))}
-        </ul>
-      </section>
+      {viewMode === 'stream' ? (
+        <section className={`${card} space-y-3`}>
+          <h3 className="text-sm font-medium">流式查看</h3>
+          {sessionQ.isPending && <p className="text-sm text-neutral-500">加载会话消息…</p>}
+          {sessionQ.error && <p className="text-sm text-red-600">{sessionQ.error.message}</p>}
+          {sessionQ.data && <StreamView d={d} messages={sessionQ.data.messages} />}
+        </section>
+      ) : (
+        <section className={`${card} space-y-3`}>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="mr-auto text-sm font-medium">逐条明细</h3>
+            <input
+              type="search"
+              className={`${input} max-w-48 py-1 text-xs`}
+              placeholder="搜索主播发言…"
+              value={searchTerm}
+              onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
+            />
+          </div>
+          {(() => {
+            const turnItems = d.items.filter((it) => it.kind === 'turn');
+            const filtered = searchTerm
+              ? turnItems.filter((it) => (it.text ?? '').toLowerCase().includes(searchTerm.toLowerCase()))
+              : turnItems;
+            const pageSize = 20;
+            const totalPages = Math.ceil(filtered.length / pageSize) || 1;
+            const curPage = Math.min(page, totalPages);
+            const paged = filtered.slice((curPage - 1) * pageSize, curPage * pageSize);
+            return (
+              <>
+                <ul className="space-y-2">
+                  {paged.map((it) => (
+                    <TurnRow key={it.id} it={it} detail={d} />
+                  ))}
+                  {filtered.length === 0 && <p className="py-4 text-center text-sm text-neutral-400">没有匹配的条目</p>}
+                </ul>
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between pt-1 text-xs text-neutral-500">
+                    <span>共 {filtered.length} 条</span>
+                    <div className="flex items-center gap-2">
+                      <button type="button" className={secondaryBtn} disabled={curPage <= 1} onClick={() => setPage(curPage - 1)}>上一页</button>
+                      <span className="tabular-nums">{curPage} / {totalPages}</span>
+                      <button type="button" className={secondaryBtn} disabled={curPage >= totalPages} onClick={() => setPage(curPage + 1)}>下一页</button>
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
+        </section>
+      )}
     </div>
   );
 }

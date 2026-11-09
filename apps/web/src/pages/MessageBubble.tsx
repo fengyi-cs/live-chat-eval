@@ -97,7 +97,7 @@ export function MessageBubble({ m, quote, unanswered, highlighted, pending, scor
           <span className="opacity-70">{m.time}</span>
 
           {pending && (
-            <span className="rounded-full bg-sky-100 px-1.5 py-0.5 text-sky-700 dark:bg-sky-900/60 dark:text-sky-300">
+            <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300">
               回复中
             </span>
           )}

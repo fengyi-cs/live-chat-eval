@@ -2,10 +2,8 @@ import {
   BarChart2Icon,
   BookOpenIcon,
   DownloadIcon,
-  MessageSquareIcon,
   SettingsIcon,
   TargetIcon,
-  TimerIcon,
   UserIcon,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -29,7 +27,7 @@ function RoomIcon({ icon, label, onClick, active, badge, disabled }: IconAction 
           disabled={disabled}
           className={`relative flex size-9 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
             active
-              ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/60 dark:text-sky-300'
+              ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300'
               : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-300'
           }`}
           aria-label={label}
@@ -47,14 +45,13 @@ export interface RoomIconsProps {
   activeSheet: string | null;
   onOpenSheet: (sheet: string | null) => void;
   evalRunning?: boolean;
+  liveEvalEnabled?: boolean;
+  onToggleLiveEval?: () => void;
 }
 
-export function LeftIcons({ activeSheet, onOpenSheet, evalRunning }: RoomIconsProps) {
+export function LeftIcons({ activeSheet, onOpenSheet, evalRunning, liveEvalEnabled, onToggleLiveEval }: RoomIconsProps) {
   const actions = [
     { icon: <BookOpenIcon className="size-5" />, label: '弹幕剧本', sheet: 'script', enabled: true },
-    { icon: <MessageSquareIcon className="size-5" />, label: '实时对话（即将支持）', sheet: 'live', enabled: false },
-    { icon: <TimerIcon className="size-5" />, label: '节奏控制（即将支持）', sheet: 'pace', enabled: false },
-    { icon: <TargetIcon className="size-5" />, label: '实时评分（即将支持）', sheet: 'eval', enabled: false },
   ];
   return (
     <div className="hidden flex-col items-center gap-2 py-3 md:flex">
@@ -65,10 +62,16 @@ export function LeftIcons({ activeSheet, onOpenSheet, evalRunning }: RoomIconsPr
           label={a.label}
           onClick={() => a.enabled && onOpenSheet(activeSheet === a.sheet ? null : a.sheet)}
           active={a.enabled && activeSheet === a.sheet}
-          badge={a.sheet === 'eval' ? evalRunning : undefined}
           disabled={!a.enabled}
         />
       ))}
+      <RoomIcon
+        icon={<TargetIcon className="size-5" />}
+        label={liveEvalEnabled ? '实时评估：开启（点击关闭）' : '实时评估：关闭（点击开启）'}
+        onClick={onToggleLiveEval}
+        active={!!liveEvalEnabled}
+        badge={evalRunning || liveEvalEnabled}
+      />
     </div>
   );
 }
@@ -95,11 +98,10 @@ export function RightIcons({ activeSheet, onOpenSheet }: RoomIconsProps) {
   );
 }
 
-export function MobileIconBar({ activeSheet, onOpenSheet, evalRunning }: RoomIconsProps) {
+export function MobileIconBar({ activeSheet, onOpenSheet, evalRunning, liveEvalEnabled, onToggleLiveEval }: RoomIconsProps) {
   const all = [
     { icon: <BookOpenIcon className="size-5" />, label: '弹幕剧本', sheet: 'script', enabled: true },
-    { icon: <MessageSquareIcon className="size-5" />, label: '实时对话', sheet: 'live', enabled: false },
-    { icon: <TargetIcon className="size-5" />, label: '实时评分', sheet: 'eval', enabled: false },
+    { icon: <TargetIcon className="size-5" />, label: '实时评估', sheet: 'eval', enabled: true, special: true },
     { icon: <DownloadIcon className="size-5" />, label: '导入记录', sheet: 'import', enabled: true },
     { icon: <BarChart2Icon className="size-5" />, label: '场次库', sheet: 'sessions', enabled: true },
     { icon: <SettingsIcon className="size-5" />, label: '配置', sheet: 'config', enabled: true },
@@ -112,17 +114,20 @@ export function MobileIconBar({ activeSheet, onOpenSheet, evalRunning }: RoomIco
           key={a.label}
           type="button"
           disabled={!a.enabled}
-          onClick={() => a.enabled && onOpenSheet(activeSheet === a.sheet ? null : a.sheet)}
+          onClick={() => {
+            if ('special' in a && a.special) { onToggleLiveEval?.(); return; }
+            a.enabled && onOpenSheet(activeSheet === a.sheet ? null : a.sheet);
+          }}
           aria-label={a.enabled ? a.label : `${a.label}（即将支持）`}
           title={a.enabled ? undefined : '即将支持'}
           className={`relative flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-            activeSheet === a.sheet
-              ? 'text-sky-600 dark:text-sky-400'
+            ('special' in a && a.special && liveEvalEnabled) || activeSheet === a.sheet
+              ? 'text-indigo-600 dark:text-indigo-400'
               : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
           }`}
         >
           {a.icon}
-          {a.sheet === 'eval' && evalRunning && (
+          {'special' in a && a.special && liveEvalEnabled && (
             <span className="absolute right-1 top-1 size-2 rounded-full bg-emerald-500" />
           )}
           <span>{a.label}</span>

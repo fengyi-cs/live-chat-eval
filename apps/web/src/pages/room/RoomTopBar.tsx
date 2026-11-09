@@ -68,7 +68,7 @@ export function RoomTopBar({ room, anchorName, configName, onAnchorChange, onOpe
               <div className="my-1 border-t border-neutral-200 dark:border-neutral-800" />
               <button
                 type="button"
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-sky-600 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-indigo-600 hover:bg-neutral-100 dark:hover:bg-neutral-800"
                 onClick={() => {
                   setDropdownOpen(false);
                   onOpenAnchors();
