@@ -22,6 +22,8 @@ import { SessionSheet } from './SessionSheet.tsx';
 import { ConfigSheet } from './ConfigSheet.tsx';
 import { AnchorDialog } from './AnchorDialog.tsx';
 import { ModelPicker } from '../components/ModelPicker.tsx';
+import { GuidedTour } from '../components/GuidedTour.tsx';
+import { HintBubble } from '../components/HintBubble.tsx';
 
 function ActiveSession({
   sessionId,
@@ -321,6 +323,8 @@ export function LiveRoom() {
         selectedAnchor={anchorName}
         onAnchorChange={handleAnchorChange}
       />
+
+      <GuidedTour />
     </div>
   );
 }
@@ -380,7 +384,14 @@ function ChatAreaEmpty({
     <>
       <div className="flex flex-1 items-center justify-center px-4">
         <div className="w-full max-w-sm space-y-3">
-          <p className="text-xs font-medium text-neutral-500">准备清单</p>
+          <HintBubble
+            storageKey="lce.hint.checklist"
+            title="准备清单"
+            tone="tip"
+          >
+            按顺序完成三步就能开播。已预置了示例主播「小鹿」和默认回复配置，你只需到设置页添加模型。
+          </HintBubble>
+          <p className="text-xs font-medium text-neutral-500">开始测试前</p>
           {steps.map((step, i) => (
             <div key={step.label} className={`flex items-start gap-3 rounded-lg border p-3 ${
               step.done ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30'

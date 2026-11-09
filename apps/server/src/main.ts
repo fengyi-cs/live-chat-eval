@@ -4,8 +4,10 @@ import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { createApp } from './app.ts';
 import { openDb } from './db/client.ts';
+import { bootstrapDefaults } from './services/bootstrap.ts';
 
 const db = openDb();
+bootstrapDefaults(db);
 const app = createApp(db);
 
 const webDist = fileURLToPath(new URL('../../web/dist', import.meta.url));
