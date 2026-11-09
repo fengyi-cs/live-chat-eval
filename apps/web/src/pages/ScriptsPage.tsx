@@ -1,5 +1,21 @@
-import { DEFAULT_SCRIPT_GAP_SEC, formatOffset, parseScript, scriptStats } from '@lce/core';
+import { DEFAULT_SCRIPT_GAP_SEC, formatOffset, parseScript, scriptStats, type ScriptEvent } from '@lce/core';
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { GripVerticalIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { api, type Script } from '../api.ts';
 import { card, emptyState, input, listItem, primaryBtn, secondaryBtn } from '../ui.ts';
@@ -27,6 +43,41 @@ function nextName(existing: readonly string[]) {
   return `剧本 ${i}`;
 }
 
+function eventsToContent(events: ScriptEvent[]): string {
+  return events.map((e) => `${formatOffset(e.at)} ${e.speaker}：${e.text}`).join('\n');
+}
+
+interface SortableRowProps {
+  id: string;
+  event: ScriptEvent;
+}
+
+function SortableRow({ id, event }: SortableRowProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  return (
+    <tr
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={`border-t border-neutral-100 align-top dark:border-neutral-800 ${isDragging ? 'opacity-50 bg-sky-50 dark:bg-sky-950/30' : ''}`}
+    >
+      <td className="py-1 pr-1 w-5">
+        <button
+          type="button"
+          className="cursor-grab touch-none text-neutral-300 hover:text-neutral-500 dark:text-neutral-600 dark:hover:text-neutral-400 active:cursor-grabbing"
+          aria-label="拖拽排序"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVerticalIcon className="size-3.5" />
+        </button>
+      </td>
+      <td className="py-1 pr-2 font-mono text-xs text-neutral-500">{formatOffset(event.at)}</td>
+      <td className="py-1 pr-2 whitespace-nowrap">{event.speaker}</td>
+      <td className="py-1 break-all">{event.text}</td>
+    </tr>
+  );
+}
+
 function ScriptEditor({ script, onDeleted }: { script: Script; onDeleted: () => void }) {
   const queryClient = useQueryClient();
   const [name, setName] = useState(script.name);
@@ -37,6 +88,8 @@ function ScriptEditor({ script, onDeleted }: { script: Script; onDeleted: () => 
   const parsed = useMemo(() => parseScript(content, gap), [content, gap]);
   const stats = useMemo(() => scriptStats(parsed.events), [parsed]);
   const dirty = name !== script.name || gap !== script.defaultGapSec || content !== script.content;
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const save = useMutation({
     mutationFn: () => api.updateScript(script.id, { name: name.trim(), defaultGapSec: gap, content }),
@@ -66,6 +119,19 @@ function ScriptEditor({ script, onDeleted }: { script: Script; onDeleted: () => 
     if (content.trim() && !confirm(`用「${file.name}」的内容替换当前剧本？`)) return;
     setContent(text);
   };
+
+  function handleDragEnd(ev: DragEndEvent) {
+    const { active, over } = ev;
+    if (!over || active.id === over.id || parsed.issues.length > 0) return;
+    const events = parsed.events.slice(0, PREVIEW_ROWS);
+    const oldIndex = events.findIndex((e) => String(e.line) === active.id);
+    const newIndex = events.findIndex((e) => String(e.line) === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const reordered = arrayMove(parsed.events, oldIndex, newIndex);
+    setContent(eventsToContent(reordered));
+  }
+
+  const previewEvents = parsed.events.slice(0, PREVIEW_ROWS);
 
   return (
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
@@ -132,7 +198,12 @@ function ScriptEditor({ script, onDeleted }: { script: Script; onDeleted: () => 
       </section>
 
       <section className={`${card} space-y-3`}>
-        <h2 className="text-sm font-medium">解析预览</h2>
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-sm font-medium">解析预览</h2>
+          {parsed.issues.length === 0 && previewEvents.length > 0 && (
+            <span className="text-xs text-neutral-400">可拖拽行调整顺序</span>
+          )}
+        </div>
         <p className="text-xs text-neutral-500">
           {stats.eventCount} 条弹幕 · {stats.speakers.length} 位观众 · 时长 {formatOffset(stats.durationMs)}
         </p>
@@ -158,20 +229,24 @@ function ScriptEditor({ script, onDeleted }: { script: Script; onDeleted: () => 
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-white text-left text-xs text-neutral-500 dark:bg-neutral-900">
               <tr>
+                <th className="w-5 py-1 font-normal" />
                 <th className="py-1 pr-2 font-normal">时间</th>
                 <th className="py-1 pr-2 font-normal">昵称</th>
                 <th className="py-1 font-normal">内容</th>
               </tr>
             </thead>
-            <tbody>
-              {parsed.events.slice(0, PREVIEW_ROWS).map((e, i) => (
-                <tr key={i} className="border-t border-neutral-100 align-top dark:border-neutral-800">
-                  <td className="py-1 pr-2 font-mono text-xs text-neutral-500">{formatOffset(e.at)}</td>
-                  <td className="py-1 pr-2 whitespace-nowrap">{e.speaker}</td>
-                  <td className="py-1 break-all">{e.text}</td>
-                </tr>
-              ))}
-            </tbody>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext
+                items={previewEvents.map((e) => String(e.line))}
+                strategy={verticalListSortingStrategy}
+              >
+                <tbody>
+                  {previewEvents.map((e) => (
+                    <SortableRow key={e.line} id={String(e.line)} event={e} />
+                  ))}
+                </tbody>
+              </SortableContext>
+            </DndContext>
           </table>
           {parsed.events.length > PREVIEW_ROWS && <p className="mt-1 text-xs text-neutral-500">只显示前 {PREVIEW_ROWS} 条</p>}
         </div>
