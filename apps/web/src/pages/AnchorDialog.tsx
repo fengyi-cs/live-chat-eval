@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, type AnchorDetail, type AnchorSource } from '../api.ts';
 import { Dialog, DialogContent, DialogTitle } from '../components/ui/dialog.tsx';
 import { card, input, listItem, primaryBtn, secondaryBtn } from '../ui.ts';
@@ -18,11 +18,13 @@ function SourceBadge({ source }: { source: AnchorSource }) {
   return <span className={`rounded px-1 text-xs ${sourceTone[source]}`}>{SOURCE_LABEL[source]}</span>;
 }
 
-function PersonaEditor({ anchor }: { anchor: AnchorDetail }) {
+function PersonaEditor({ anchor, onDirtyChange }: { anchor: AnchorDetail; onDirtyChange?: (v: boolean) => void }) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState(anchor.personaPrompt);
   const [fileError, setFileError] = useState<string | null>(null);
   const dirty = draft !== anchor.personaPrompt;
+
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
 
   const save = useMutation({
     mutationFn: () => api.updateAnchor(anchor.name, { personaPrompt: draft }),
@@ -44,7 +46,7 @@ function PersonaEditor({ anchor }: { anchor: AnchorDetail }) {
   return (
     <section className={`${card} space-y-2`}>
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="mr-auto text-sm font-medium">人设 prompt</h3>
+        <h3 className="mr-auto text-sm font-medium">主播人设</h3>
         <label className={`${secondaryBtn} cursor-pointer`}>
           上传文件
           <input type="file" accept=".md,.markdown,.txt,.prompt" className="hidden"
@@ -70,7 +72,7 @@ function PersonaEditor({ anchor }: { anchor: AnchorDetail }) {
   );
 }
 
-function AnchorView({ name, onDeleted }: { name: string; onDeleted: () => void }) {
+function AnchorView({ name, onDeleted, onDirtyChange }: { name: string; onDeleted: () => void; onDirtyChange?: (v: boolean) => void }) {
   const queryClient = useQueryClient();
   const detail = useQuery({ queryKey: ['anchor', name], queryFn: () => api.anchor(name) });
   const [code, setCode] = useState<string | null>(null);
@@ -120,7 +122,7 @@ function AnchorView({ name, onDeleted }: { name: string; onDeleted: () => void }
         {remove.error && <p className="w-full text-xs text-red-600">{remove.error.message}</p>}
       </section>
 
-      <PersonaEditor key={a.name} anchor={a} />
+      <PersonaEditor key={a.name} anchor={a} onDirtyChange={onDirtyChange} />
 
       <section className={`${card} space-y-2`}>
         <h3 className="text-sm font-medium">回复配置</h3>
@@ -147,6 +149,7 @@ export function AnchorDialog({ open, onOpenChange, selectedAnchor, onAnchorChang
   const [activeName, setActiveName] = useState<string | null>(selectedAnchor);
   const [newName, setNewName] = useState('');
   const [newCode, setNewCode] = useState('');
+  const isDirtyRef = useRef(false);
 
   const create = useMutation({
     mutationFn: () => api.createAnchor({ name: newName.trim(), code: newCode.trim() || null }),
@@ -161,10 +164,10 @@ export function AnchorDialog({ open, onOpenChange, selectedAnchor, onAnchorChang
   const active = anchors.data?.find((a) => a.name === (activeName ?? anchors.data[0]?.name)) ?? null;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="grid h-[85vh] w-[90vw] max-w-[90vw] grid-cols-[260px_1fr] gap-0 overflow-hidden p-0 sm:max-w-[90vw]">
+    <Dialog open={open} onOpenChange={(v) => { if (!v && isDirtyRef.current && !confirm('人设有未保存的修改，确定放弃？')) return; isDirtyRef.current = false; onOpenChange(v); }}>
+      <DialogContent className="flex h-[85vh] w-[95vw] max-w-[95vw] flex-col overflow-hidden p-0 sm:grid sm:grid-cols-[220px_1fr] sm:gap-0 sm:max-w-[90vw]">
         <DialogTitle className="sr-only">主播管理</DialogTitle>
-        <aside className="border-r border-neutral-200 p-3 dark:border-neutral-800">
+        <aside className="max-h-48 overflow-y-auto border-b border-neutral-200 p-3 sm:max-h-none sm:border-b-0 sm:border-r dark:border-neutral-800">
           <h2 className="mb-2 text-sm font-medium">主播</h2>
           <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); if (newName.trim()) create.mutate(); }}>
             <input className={input} value={newName} onChange={(e) => setNewName(e.target.value)}
@@ -194,7 +197,7 @@ export function AnchorDialog({ open, onOpenChange, selectedAnchor, onAnchorChang
         </aside>
         <div className="overflow-y-auto p-4">
           {active ? (
-            <AnchorView key={active.name} name={active.name} onDeleted={() => setActiveName(null)} />
+            <AnchorView key={active.name} name={active.name} onDeleted={() => setActiveName(null)} onDirtyChange={(v) => { isDirtyRef.current = v; }} />
           ) : (
             <div className="flex h-full items-center justify-center text-sm text-neutral-500">
               新增一个主播，或者先去导入聊天记录

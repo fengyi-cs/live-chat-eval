@@ -1,4 +1,3 @@
-import type { SimMode } from '@lce/core';
 import { useQuery } from '@tanstack/react-query';
 import { formatOffset } from '@lce/core';
 import { ChevronDownIcon, PlusIcon } from 'lucide-react';
@@ -10,12 +9,12 @@ import { END_LABELS, type RoomState } from './roomReducer.ts';
 interface Props {
   room: RoomState;
   anchorName: string | null;
+  configName: string | null;
   onAnchorChange: (name: string) => void;
-  onModeChange: (mode: SimMode) => void;
   onOpenAnchors: () => void;
 }
 
-export function RoomTopBar({ room, anchorName, onAnchorChange, onModeChange, onOpenAnchors }: Props) {
+export function RoomTopBar({ room, anchorName, configName, onAnchorChange, onOpenAnchors }: Props) {
   const anchors = useQuery({ queryKey: ['anchors'], queryFn: api.anchors });
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
@@ -101,23 +100,16 @@ export function RoomTopBar({ room, anchorName, onAnchorChange, onModeChange, onO
       </div>
 
       <div className="ml-auto flex items-center gap-1">
-        <div className="flex rounded-lg border border-neutral-200 p-0.5 dark:border-neutral-800">
-          {(['live', 'script'] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              disabled={!info}
-              className={`rounded px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-40 ${
-                info?.mode === m
-                  ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900'
-                  : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-              }`}
-              onClick={() => onModeChange(m)}
-            >
-              {m === 'live' ? '实时对话' : '剧本回放'}
-            </button>
-          ))}
-        </div>
+        {configName && (
+          <span className="hidden rounded-lg border border-neutral-200 px-2.5 py-1 text-xs text-neutral-500 sm:inline dark:border-neutral-800">
+            {configName}
+          </span>
+        )}
+        {info && (
+          <span className="rounded-lg border border-neutral-200 px-2.5 py-1 text-xs font-medium text-neutral-600 dark:border-neutral-800 dark:text-neutral-400">
+            {info.mode === 'live' ? '实时对话' : '剧本回放'}
+          </span>
+        )}
       </div>
 
       {room.warnings.length > 0 && (

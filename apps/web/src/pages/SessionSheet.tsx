@@ -64,7 +64,7 @@ export function SessionSheet({ open, onOpenChange, onSelect }: Props) {
                   onClick={() => { onSelect(activeId); onOpenChange(false); }}
                   className="mb-2 text-xs text-sky-600 hover:underline"
                 >
-                  在直播间查看 →
+                  打开此场次 →
                 </button>
                 <SessionView id={activeId} onDeleted={() => setSelected(null)} />
               </>

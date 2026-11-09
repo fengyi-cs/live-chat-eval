@@ -1,13 +1,14 @@
 import type { SpeakerRole } from '@lce/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { api, type ImportPreview } from '../api.ts';
+import { ModelPicker } from '../components/ModelPicker.tsx';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../components/ui/sheet.tsx';
-import { input, primaryBtn } from '../ui.ts';
+import { input, primaryBtn, secondaryBtn } from '../ui.ts';
 
 const ROLE_LABELS: Record<SpeakerRole, string> = {
   anchor: '主播（被评估方）',
-  viewer: '观众（提问方）',
+  viewer: '观众（弹幕发送者）',
   action: '动作',
   ignore: '忽略',
 };
@@ -38,8 +39,14 @@ export function ImportSheet({ open, onOpenChange, onImported }: Props) {
   const [replace, setReplace] = useState(false);
   const [withEval, setWithEval] = useState(false);
   const [rubricId, setRubricId] = useState<string | null>(null);
+  const [judgeChoice, setJudgeChoice] = useState<{ providerId: string | null; model: string | null }>({ providerId: null, model: null });
+  const [evalError, setEvalError] = useState<string | null>(null);
+  const [importedSessionId, setImportedSessionId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const effectiveRubricId = rubricId ?? rubrics.data?.[0]?.id ?? null;
+  const selectedRubric = rubrics.data?.find((r) => r.id === effectiveRubricId);
+  const needsJudge = selectedRubric?.rubric.dimensions.some((d) => d.enabled) ?? false;
 
   const previewMut = useMutation({
     mutationFn: api.previewImport,
@@ -56,16 +63,24 @@ export function ImportSheet({ open, onOpenChange, onImported }: Props) {
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
       queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
       queryClient.invalidateQueries({ queryKey: ['anchors'] });
+      setEvalError(null);
       if (withEval && effectiveRubricId) {
-        await api.startEval({ sessionId, rubricId: effectiveRubricId }).catch(() => {
-        });
-        queryClient.invalidateQueries({ queryKey: ['evals'] });
+        try {
+          await api.startEval({
+            sessionId,
+            rubricId: effectiveRubricId,
+            providerId: judgeChoice.providerId ?? undefined,
+            model: judgeChoice.model ?? undefined,
+          });
+          queryClient.invalidateQueries({ queryKey: ['evals'] });
+        } catch (e) {
+          setEvalError((e as Error).message);
+        }
       }
       setPreview(null);
       setContent('');
       setFileName('');
-      onImported(sessionId);
-      onOpenChange(false);
+      setImportedSessionId(sessionId);
     },
   });
 
@@ -75,12 +90,80 @@ export function ImportSheet({ open, onOpenChange, onImported }: Props) {
     setFileName(file.name);
     setContent(text);
     commitMut.reset();
+    setImportedSessionId(null);
+    setEvalError(null);
     previewMut.mutate(text);
+  };
+
+  const onDrop = (e: React.DragEvent<HTMLLabelElement>) => {
+    e.preventDefault();
+    void onFile(e.dataTransfer.files?.[0]);
   };
 
   const anchorCount = Object.values(roles).filter((r) => r === 'anchor').length;
   const blockedByDuplicate = Boolean(preview?.duplicateSessionId) && !replace;
+  const missingJudge = withEval && needsJudge && (!judgeChoice.providerId || !judgeChoice.model);
   const error = previewMut.error ?? commitMut.error;
+
+  if (importedSessionId) {
+    return (
+      <Sheet open={open} onOpenChange={(v) => { if (!v) { setImportedSessionId(null); setEvalError(null); } onOpenChange(v); }}>
+        <SheetContent side="right" className="flex w-full flex-col sm:max-w-lg">
+          <SheetHeader>
+            <SheetTitle>导入历史聊天记录</SheetTitle>
+          </SheetHeader>
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-4 pb-4 text-center">
+            <p className="text-base font-medium text-emerald-600">导入成功</p>
+            {evalError ? (
+              <p className="text-sm text-red-600">评估启动失败：{evalError}</p>
+            ) : withEval ? (
+              <p className="text-sm text-neutral-500">评估已启动，可前往「评估分析」查看进度</p>
+            ) : null}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className={primaryBtn}
+                onClick={() => { onImported(importedSessionId); onOpenChange(false); }}
+              >
+                打开此场次
+              </button>
+              {evalError && (
+                <button
+                  type="button"
+                  className={secondaryBtn}
+                  onClick={() => {
+                    if (!effectiveRubricId) return;
+                    setEvalError(null);
+                    void api.startEval({
+                      sessionId: importedSessionId,
+                      rubricId: effectiveRubricId,
+                      providerId: judgeChoice.providerId ?? undefined,
+                      model: judgeChoice.model ?? undefined,
+                    }).then(() => {
+                      queryClient.invalidateQueries({ queryKey: ['evals'] });
+                      setEvalError(null);
+                    }).catch((e: Error) => setEvalError(e.message));
+                  }}
+                >
+                  重试评估
+                </button>
+              )}
+              <button
+                type="button"
+                className={secondaryBtn}
+                onClick={() => {
+                  setImportedSessionId(null);
+                  setEvalError(null);
+                }}
+              >
+                继续导入
+              </button>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
+    );
+  }
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -90,13 +173,22 @@ export function ImportSheet({ open, onOpenChange, onImported }: Props) {
         </SheetHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-4">
           <p className="text-xs text-neutral-500">
-            导入后可在聊天窗口查看，也可以选择继续对话或进行逐句评估。
+            支持 .md 格式聊天记录，导入后可查看对话或发起评估。
           </p>
 
-          <label className="block cursor-pointer rounded-lg border border-dashed border-neutral-300 px-3 py-6 text-center text-sm text-neutral-500 hover:border-neutral-500 dark:border-neutral-700">
+          <label
+            className="block cursor-pointer rounded-lg border border-dashed border-neutral-300 px-3 py-6 text-center text-sm text-neutral-500 hover:border-neutral-500 dark:border-neutral-700"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={onDrop}
+          >
             {fileName || '拖拽或点击选择 .md 聊天记录文件'}
-            <input type="file" accept=".md,.markdown,.txt" className="hidden"
-              onChange={(e) => { void onFile(e.target.files?.[0]); e.currentTarget.value = ''; }} />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".md,.markdown,.txt"
+              className="hidden"
+              onChange={(e) => { void onFile(e.target.files?.[0]); e.currentTarget.value = ''; }}
+            />
           </label>
 
           {previewMut.isPending && <p className="text-sm text-neutral-500">解析中…</p>}
@@ -114,7 +206,7 @@ export function ImportSheet({ open, onOpenChange, onImported }: Props) {
               </div>
 
               <div>
-                <p className="mb-1 text-xs text-neutral-500">角色分配 — 可拖拽调整，主播唯一</p>
+                <p className="mb-1 text-xs text-neutral-500">角色分配 — 通过下拉框指定，主播唯一</p>
                 <table className="w-full">
                   <thead>
                     <tr className="text-left text-xs text-neutral-500">
@@ -147,7 +239,7 @@ export function ImportSheet({ open, onOpenChange, onImported }: Props) {
               </div>
 
               {anchorCount !== 1 && (
-                <p className="text-xs text-amber-600">需要且只能指定一个主播（当前 {anchorCount} 个）</p>
+                <p className="text-xs text-amber-600">需要且只能指定 1 位主播（当前 {anchorCount} 位）</p>
               )}
 
               <div className="space-y-2 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
@@ -161,38 +253,51 @@ export function ImportSheet({ open, onOpenChange, onImported }: Props) {
                 <label className="flex items-center gap-2 text-xs">
                   <input type="checkbox" checked={withEval} onChange={(e) => setWithEval(e.target.checked)} />
                   <span>
-                    导入后进行逐句评估
+                    导入后自动发起逐句评估
                     <span className="ml-1 text-neutral-400">（可在评估分析页查看进度）</span>
                   </span>
                 </label>
                 {withEval && (
-                  <label className="flex items-center gap-2 text-xs">
-                    <span className="shrink-0 text-neutral-500">评分标准：</span>
-                    {rubrics.data?.length === 0 ? (
-                      <span className="text-amber-600">还没有评分标准，先去「评分标准」页新建</span>
+                  <div className="space-y-2 pl-5">
+                    <label className="flex items-center gap-2 text-xs">
+                      <span className="shrink-0 text-neutral-500">评分标准：</span>
+                      {rubrics.data?.length === 0 ? (
+                        <span className="text-amber-600">还没有评分标准，先去「评分标准」页新建</span>
+                      ) : (
+                        <select
+                          className="flex-1 rounded border border-neutral-300 bg-transparent px-1 py-0.5 text-xs dark:border-neutral-700"
+                          value={effectiveRubricId ?? ''}
+                          onChange={(e) => setRubricId(e.target.value || null)}
+                        >
+                          {rubrics.data?.map((r) => (
+                            <option key={r.id} value={r.id}>{r.name}</option>
+                          ))}
+                        </select>
+                      )}
+                    </label>
+                    {needsJudge ? (
+                      <div className="space-y-1">
+                        <p className="text-xs text-neutral-500">此评分标准包含模型评分维度，需选择裁判模型：</p>
+                        <ModelPicker value={judgeChoice} onChange={setJudgeChoice} />
+                      </div>
                     ) : (
-                      <select
-                        className="flex-1 rounded border border-neutral-300 bg-transparent px-1 py-0.5 text-xs dark:border-neutral-700"
-                        value={effectiveRubricId ?? ''}
-                        onChange={(e) => setRubricId(e.target.value || null)}
-                      >
-                        {rubrics.data?.map((r) => (
-                          <option key={r.id} value={r.id}>{r.name}</option>
-                        ))}
-                      </select>
+                      <p className="text-xs text-neutral-400">此评分标准仅含规则评分，无需裁判模型</p>
                     )}
-                  </label>
+                  </div>
                 )}
               </div>
 
               <button
                 type="button"
-                disabled={anchorCount !== 1 || blockedByDuplicate || commitMut.isPending}
+                disabled={anchorCount !== 1 || blockedByDuplicate || commitMut.isPending || missingJudge}
                 onClick={() => commitMut.mutate()}
                 className={`${primaryBtn} w-full`}
               >
                 {commitMut.isPending ? '导入中…' : '确认导入'}
               </button>
+              {missingJudge && (
+                <p className="text-xs text-amber-600">请先选择裁判模型</p>
+              )}
             </div>
           )}
         </div>

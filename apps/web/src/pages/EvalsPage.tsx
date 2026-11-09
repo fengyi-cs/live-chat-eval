@@ -49,6 +49,9 @@ function StartPanel({ onStarted }: { onStarted: (id: string) => void }) {
     },
   });
 
+  const needsJudge = rubric?.rubric.dimensions.some((d) => d.enabled) ?? false;
+  const missingJudge = needsJudge && (!judgeChoice.providerId || !judgeChoice.model);
+
   return (
     <section className={`${card} space-y-3`}>
       <h2 className="text-sm font-medium">发起评估</h2>
@@ -64,9 +67,9 @@ function StartPanel({ onStarted }: { onStarted: (id: string) => void }) {
         </select>
       </label>
       <label className="block space-y-1">
-        <span className="text-xs text-neutral-500">评分模板</span>
+        <span className="text-xs text-neutral-500">评分标准</span>
         <select className={input} value={rubric?.id ?? ''} onChange={(e) => setRubricId(e.target.value)}>
-          {rubrics.data?.length === 0 && <option value="">先去「评分模板」新建</option>}
+          {rubrics.data?.length === 0 && <option value="">先去「评分标准」新建</option>}
           {rubrics.data?.map((r) => (
             <option key={r.id} value={r.id}>
               {r.name}
@@ -74,10 +77,17 @@ function StartPanel({ onStarted }: { onStarted: (id: string) => void }) {
           ))}
         </select>
       </label>
-      <label className="block space-y-1">
+      <div className="space-y-1">
         <span className="text-xs text-neutral-500">裁判模型</span>
-        <ModelPicker value={judgeChoice} onChange={setJudgeChoice} placeholder="选裁判模型（只需 LLM 维度时）" />
-      </label>
+        {needsJudge ? (
+          <>
+            <ModelPicker value={judgeChoice} onChange={setJudgeChoice} />
+            {missingJudge && <p className="text-xs text-amber-600">此评分标准包含模型评分维度，请选择裁判模型</p>}
+          </>
+        ) : (
+          <p className="text-xs text-neutral-400">此评分标准仅含规则评分，无需裁判模型</p>
+        )}
+      </div>
       <div className="grid grid-cols-2 gap-2">
         <label className="block space-y-1">
           <span className="text-xs text-neutral-500">温度</span>
@@ -90,7 +100,7 @@ function StartPanel({ onStarted }: { onStarted: (id: string) => void }) {
           </select>
         </label>
       </div>
-      <button type="button" className={`${primaryBtn} w-full`} disabled={!session || !rubric || start.isPending} onClick={() => start.mutate()}>
+      <button type="button" className={`${primaryBtn} w-full`} disabled={!session || !rubric || start.isPending || missingJudge} onClick={() => start.mutate()}>
         开始评估
       </button>
       {start.error && <p className="text-xs text-red-600">{start.error.message}</p>}
@@ -173,8 +183,7 @@ function Report({ id, onDeleted }: { id: string; onDeleted: () => void }) {
   const d = live ?? detail.data;
   if (!d) return <p className="text-sm text-neutral-500">{detail.error?.message ?? '加载中…'}</p>;
   const s = d.summary;
-  const done = s.judged + s.failed;
-  const total = done + s.pending;
+  const total = s.judged + s.failed + s.pending;
 
   return (
     <div className="space-y-4">
@@ -186,7 +195,7 @@ function Report({ id, onDeleted }: { id: string; onDeleted: () => void }) {
             </h2>
             <p className="text-xs text-neutral-500">
               {d.rubricName} · {d.providerName ? `${d.providerName} / ${d.model}` : '只用规则'} · {STATUS[d.status]}
-              {total > 0 && ` · 已打分 ${done}/${total}`} · 调用 {d.calls} 次
+              {total > 0 && ` · 已打分 ${s.judged}/${total}${s.failed > 0 ? `，失败 ${s.failed}` : ''}`} · 调用 {d.calls} 次
             </p>
             {d.error && <p className="text-xs text-red-600">{d.error}</p>}
           </div>
@@ -297,7 +306,7 @@ export function EvalsPage() {
           </ul>
         </section>
       </aside>
-      <main>{active ? <Report key={active.id} id={active.id} onDeleted={() => setSelected(null)} /> : <div className={emptyState}>选一场会话和评分模板，开始评估</div>}</main>
+      <main>{active ? <Report key={active.id} id={active.id} onDeleted={() => setSelected(null)} /> : <div className={emptyState}>选一场会话和评分标准，开始评估</div>}</main>
     </div>
   );
 }

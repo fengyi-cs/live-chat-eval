@@ -154,7 +154,10 @@ function ChatTester({ provider }: { provider: Provider }) {
   return (
     <section className={`${card} space-y-3`}>
       <div className="flex flex-wrap items-end gap-2">
-        <h2 className="mr-auto text-sm font-medium">测试对话</h2>
+        <div className="mr-auto">
+          <h2 className="text-sm font-medium">模型连通性测试</h2>
+          <p className="text-xs text-neutral-400">只验证接口可用，不使用主播人设，不保存历史记录</p>
+        </div>
         <label className="text-xs text-neutral-500">
           温度 {temperature.toFixed(1)}
           <input type="range" min={0} max={2} step={0.1} value={temperature} onChange={(e) => setTemperature(Number(e.target.value))} className="ml-2 align-middle" />

@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useReducer, useState } from 'react';
 import { api, type RunInfo } from '../api.ts';
 import { primaryBtn, secondaryBtn } from '../ui.ts';
@@ -56,6 +56,8 @@ function ActiveSession({
     queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
   }, [room.ended, room.gone, queryClient, sessionId]);
 
+  const stopMut = useMutation({ mutationFn: () => api.stopSim(sessionId) });
+
   if (room.gone && !room.ended) return <SessionView id={sessionId} onDeleted={onClosed} />;
   if (!room.info) return <p className="flex flex-1 items-center justify-center text-sm text-neutral-500">连接中…</p>;
 
@@ -66,8 +68,8 @@ function ActiveSession({
       <RoomTopBar
         room={room}
         anchorName={anchorName}
+        configName={room.info?.configName ?? null}
         onAnchorChange={onAnchorChange}
-        onModeChange={() => {}}
         onOpenAnchors={() => onOpenSheet('anchors')}
       />
       <ChatArea room={room} info={room.info} liveEval={liveEval} />
@@ -75,7 +77,26 @@ function ActiveSession({
         <ScriptControlBar sessionId={sessionId} pace={room.info.pace} waitingStep={room.waitingStep} running />
       )}
       {showInput && (
-        <DanmakuInput onSend={onSendDanmaku} />
+        <div className="border-t border-neutral-200 dark:border-neutral-800">
+          <div className="flex justify-end px-2 pt-1.5">
+            <button
+              type="button"
+              className={secondaryBtn}
+              onClick={() => { if (confirm('结束这场模拟？')) stopMut.mutate(); }}
+              disabled={stopMut.isPending}
+            >
+              结束本场
+            </button>
+          </div>
+          <DanmakuInput onSend={onSendDanmaku} />
+        </div>
+      )}
+      {room.ended && !room.gone && (
+        <div className="flex items-center justify-center gap-2 border-t border-neutral-200 px-3 py-2 dark:border-neutral-800">
+          <span className="text-sm text-neutral-500 mr-auto">模拟已结束</span>
+          <button type="button" className={secondaryBtn} onClick={() => onOpenSheet('sessions')}>查看场次</button>
+          <button type="button" className={secondaryBtn} onClick={() => onClosed()}>新建一场</button>
+        </div>
       )}
       {room.ended && room.gone && <SessionView id={sessionId} onDeleted={onClosed} />}
     </>
@@ -122,6 +143,8 @@ export function LiveRoom() {
   }, [active, sims.data, booting, setActive, setAnchorName]);
 
   const handleAnchorChange = (name: string) => {
+    if (name === anchorName) return;
+    if (active && !confirm(`切换主播将结束当前模拟，确定切换到「${name}」？`)) return;
     setAnchorName(name);
     if (active) {
       void api.stopSim(active).then(() => setActive(null));
@@ -159,7 +182,8 @@ export function LiveRoom() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-7rem)] gap-1">
+    <div className="flex h-[calc(100vh-7rem)] flex-col">
+      <div className="flex min-h-0 flex-1 gap-1">
       <LeftIcons activeSheet={activeSheet} onOpenSheet={handleOpenSheet} evalRunning={evalRunning} />
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
@@ -177,8 +201,8 @@ export function LiveRoom() {
             <RoomTopBar
               room={initialRoom}
               anchorName={anchorName}
+              configName={configs.data?.find((c) => c.id === effectiveConfig)?.name ?? null}
               onAnchorChange={handleAnchorChange}
-              onModeChange={() => {}}
               onOpenAnchors={() => handleOpenSheet('anchors')}
             />
             <ChatAreaEmpty
@@ -194,6 +218,7 @@ export function LiveRoom() {
       </div>
 
       <RightIcons activeSheet={activeSheet} onOpenSheet={handleOpenSheet} />
+      </div>
       <MobileIconBar activeSheet={activeSheet} onOpenSheet={handleOpenSheet} evalRunning={evalRunning} />
 
       <ScriptSheet
@@ -208,13 +233,13 @@ export function LiveRoom() {
       <ImportSheet
         open={activeSheet === 'import'}
         onOpenChange={(v) => !v && setActiveSheet(null)}
-        onImported={() => { setActive(null); setActiveSheet(null); }}
+        onImported={(sessionId) => { setActive(sessionId); setActiveSheet(null); }}
       />
 
       <SessionSheet
         open={activeSheet === 'sessions'}
         onOpenChange={(v) => !v && setActiveSheet(null)}
-        onSelect={() => setActiveSheet(null)}
+        onSelect={(sessionId) => { setActive(sessionId); setActiveSheet(null); }}
       />
 
       <ConfigSheet
@@ -247,36 +272,62 @@ function ChatAreaEmpty({
   onOpenAnchors: () => void;
   onOpenConfig: () => void;
 }) {
+  const ready = anchorName && configId;
+  const steps = [
+    {
+      done: Boolean(anchorName),
+      label: '选择主播',
+      desc: anchorName ?? '尚未选择',
+      action: !anchorName ? (
+        <button type="button" className={secondaryBtn} onClick={onOpenAnchors}>新建主播</button>
+      ) : null,
+    },
+    {
+      done: Boolean(configId),
+      label: '选择回复方案',
+      desc: configId ? '已选择' : '尚未配置',
+      action: anchorName && !configId ? (
+        <button type="button" className={secondaryBtn} onClick={onOpenConfig}>配置回复</button>
+      ) : null,
+    },
+    {
+      done: false,
+      label: '开始测试',
+      desc: ready ? '发一条弹幕开始，或加载剧本' : '完成上面两步后可开始',
+      action: ready ? (
+        <button type="button" className={secondaryBtn} onClick={onOpenScript}>加载剧本</button>
+      ) : null,
+    },
+  ];
+
   return (
     <>
-      <div className="flex flex-1 items-center justify-center">
-        <div className="space-y-3 text-center">
-          {!anchorName && (
-            <p className="text-sm text-amber-600">还没有主播，先新建一个</p>
-          )}
-          {anchorName && !configId && (
-            <p className="text-sm text-amber-600">还没有可用的回复配置</p>
-          )}
-          {anchorName && configId && (
-            <p className="text-sm text-neutral-500">在下面发一条弹幕开始聊天，或加载剧本测试</p>
-          )}
-          <div className="flex justify-center gap-2">
-            <button type="button" className={primaryBtn} onClick={onOpenScript}>
-              加载剧本
-            </button>
-            {!anchorName && (
-              <button type="button" className={secondaryBtn} onClick={onOpenAnchors}>新建主播</button>
-            )}
-            {anchorName && !configId && (
-              <button type="button" className={secondaryBtn} onClick={onOpenConfig}>配置回复</button>
-            )}
-          </div>
+      <div className="flex flex-1 items-center justify-center px-4">
+        <div className="w-full max-w-sm space-y-3">
+          <p className="text-xs font-medium text-neutral-500">准备清单</p>
+          {steps.map((step, i) => (
+            <div key={step.label} className={`flex items-start gap-3 rounded-lg border p-3 ${
+              step.done ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30'
+                : i === steps.findIndex((s) => !s.done)
+                  ? 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30'
+                  : 'border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800/30'
+            }`}>
+              <span className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                step.done ? 'bg-emerald-500 text-white' : 'bg-neutral-300 text-neutral-600 dark:bg-neutral-600 dark:text-neutral-300'
+              }`}>{step.done ? '✓' : i + 1}</span>
+              <div className="flex-1">
+                <p className="text-sm font-medium">{step.label}</p>
+                <p className="text-xs text-neutral-500">{step.desc}</p>
+              </div>
+              {step.action}
+            </div>
+          ))}
         </div>
       </div>
       <DanmakuInput
         onSend={onSend}
-        disabled={!anchorName || !configId}
-        hint={!anchorName || !configId ? '请先完成主播和配置' : '发一条弹幕开始聊天'}
+        disabled={!ready}
+        hint={!ready ? '完成准备后可发送弹幕' : '发一条弹幕开始模拟'}
       />
     </>
   );

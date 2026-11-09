@@ -8,7 +8,7 @@ import {
   type StrategyKind,
 } from '@lce/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, type AnchorConfig, type AnchorConfigSummary } from '../api.ts';
 import { ModelPicker } from '../components/ModelPicker.tsx';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../components/ui/sheet.tsx';
@@ -61,7 +61,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function ConfigEditor({ config }: { config: AnchorConfigSummary }) {
+function ConfigEditor({ config, onDirtyChange }: { config: AnchorConfigSummary; onDirtyChange?: (v: boolean) => void }) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<AnchorConfig>({ ...config });
   const [showTrial, setShowTrial] = useState(false);
@@ -72,6 +72,8 @@ function ConfigEditor({ config }: { config: AnchorConfigSummary }) {
     setDraft((d) => ({ ...d, strategy: { ...d.strategy, weights: { ...d.strategy.weights, [key]: v } } }));
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(config);
+
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   const refreshConfigs = () => queryClient.invalidateQueries({ queryKey: ['allConfigs'] });
 
   const save = useMutation({
@@ -100,7 +102,7 @@ function ConfigEditor({ config }: { config: AnchorConfigSummary }) {
             删除
           </button>
           <button type="button" className={secondaryBtn} onClick={() => setShowTrial((v) => !v)}>
-            {showTrial ? '收起试播' : '试播 →'}
+            {showTrial ? '收起预览' : '预览回复方案 →'}
           </button>
         </div>
         {save.error && <p className="text-xs text-red-600">{save.error.message}</p>}
@@ -118,7 +120,7 @@ function ConfigEditor({ config }: { config: AnchorConfigSummary }) {
             <Field label="温度" hint="0 ~ 2，留空使用模型默认值">
               <NumberInput value={draft.temperature} onChange={(v) => set({ temperature: v })} min={0} max={2} step={0.1} nullable placeholder="默认" />
             </Field>
-            <Field label="最大输出 tokens" hint="留空不限制">
+            <Field label="最大输出 tokens" hint="留空表示不设置请求上限，使用服务端或模型默认限制">
               <NumberInput value={draft.maxTokens} onChange={(v) => set({ maxTokens: v })} min={1} max={64000} integer nullable placeholder="不限制" />
             </Field>
             <Field label="上下文轮数" hint="带上最近几轮对话，0 表示不带">
@@ -201,6 +203,7 @@ export function ConfigSheet({ open, onOpenChange }: Props) {
   const queryClient = useQueryClient();
   const configs = useQuery({ queryKey: ['allConfigs'], queryFn: api.allConfigs });
   const [selected, setSelected] = usePersistentState<string | null>('lce.room.config', null);
+  const isDirtyRef = useRef(false);
   const add = useMutation({
     mutationFn: (names: string[]) => api.createConfig({ name: nextConfigName(names) }),
     onSuccess: (cfg) => {
@@ -211,8 +214,14 @@ export function ConfigSheet({ open, onOpenChange }: Props) {
   const list = configs.data ?? [];
   const config = list.find((c) => c.id === selected) ?? list[0] ?? null;
 
+  const guardedOpenChange = (v: boolean) => {
+    if (!v && isDirtyRef.current && !confirm('有未保存的修改，确定放弃？')) return;
+    isDirtyRef.current = false;
+    onOpenChange(v);
+  };
+
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={guardedOpenChange}>
       <SheetContent side="right" className="flex w-full flex-col sm:max-w-2xl">
         <SheetHeader>
           <SheetTitle>回复配置</SheetTitle>
@@ -240,7 +249,7 @@ export function ConfigSheet({ open, onOpenChange }: Props) {
           </div>
           {add.error && <p className="text-xs text-red-600">{add.error.message}</p>}
           {config && (
-            <ConfigEditor key={config.id} config={config} />
+            <ConfigEditor key={config.id} config={config} onDirtyChange={(v) => { isDirtyRef.current = v; }} />
           )}
         </div>
       </SheetContent>

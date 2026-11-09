@@ -339,7 +339,7 @@ export function RubricsPage() {
   const rubrics = useQuery({ queryKey: ['rubrics'], queryFn: api.rubrics });
   const [selected, setSelected] = usePersistentState<string | null>('lce.selectedRubric', null);
   const create = useMutation({
-    mutationFn: (n: number) => api.createRubric({ name: n === 0 ? '默认评分' : `评分模板 ${n + 1}`, rubric: DEFAULT_RUBRIC }),
+    mutationFn: (n: number) => api.createRubric({ name: n === 0 ? '默认评分' : `评分标准 ${n + 1}`, rubric: DEFAULT_RUBRIC }),
     onSuccess: (row) => {
       qc.invalidateQueries({ queryKey: ['rubrics'] });
       setSelected(row.id);
@@ -351,7 +351,7 @@ export function RubricsPage() {
     <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
       <aside className={`${card} space-y-2 self-start`}>
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium">评分模板</h2>
+          <h2 className="text-sm font-medium">评分标准</h2>
           <button type="button" className={secondaryBtn} disabled={create.isPending} onClick={() => create.mutate(rubrics.data?.length ?? 0)}>
             新增
           </button>

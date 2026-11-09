@@ -291,14 +291,14 @@ export function ScriptSheet({ open, onOpenChange, anchorName, configId, paceKey,
                       disabled={s.eventCount === 0 || s.issueCount > 0 || startScript.isPending || !anchorName || !configId}
                       onClick={() => startScript.mutate(s.id)}
                     >
-                      {startScript.isPending ? '加载中…' : '▶ 加载'}
+                      {startScript.isPending ? '启动中…' : '▶ 开始模拟'}
                     </button>
                   </li>
                 ))}
               </ul>
               {startScript.error && <p className="text-xs text-red-600">{startScript.error.message}</p>}
               {(!anchorName || !configId) && (
-                <p className="text-xs text-amber-600">请先在主播管理和回复配置中完成设置，才能加载剧本。</p>
+                <p className="text-xs text-amber-600">请先在主播管理和回复配置中完成设置，才能开始模拟。</p>
               )}
             </>
           ) : (
