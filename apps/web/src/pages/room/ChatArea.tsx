@@ -3,7 +3,23 @@ import { useLayoutEffect, useRef } from 'react';
 import type { RunInfo } from '../../api.ts';
 import type { SimMessage } from '@lce/core';
 import { END_LABELS, type RoomState, type TurnScore, scoreOf, type LiveEvalState } from './roomReducer.ts';
-import { MessageBubble } from '../MessageBubble.tsx';
+import { MessageBubble, type TurnEvalDetail } from '../MessageBubble.tsx';
+
+function evalDetailOf(liveEval: LiveEvalState | null, seq: number): TurnEvalDetail | null {
+  if (!liveEval) return null;
+  const item = liveEval.items.find((it) => it.kind === 'turn' && it.seq === seq);
+  if (!item) return null;
+  const turnRules = liveEval.rules.turns[seq];
+  const dimensions = liveEval.rubric.dimensions
+    .filter((d) => item.scores?.[d.key])
+    .map((d) => ({ name: d.name, score: item.scores![d.key]!.score, reason: item.scores![d.key]!.reason }));
+  return {
+    dimensions,
+    aiPhraseHits: turnRules?.aiPhrases?.hits,
+    latencyMs: turnRules?.latency?.value ?? null,
+    evalError: item.status === 'error' ? (item as { error?: string }).error ?? null : null,
+  };
+}
 
 interface Props {
   room: RoomState;
@@ -52,6 +68,7 @@ export function ChatArea({ room, info, liveEval }: Props) {
             highlighted={replying.has(m.seq)}
             unanswered={room.ended ? room.unanswered.has(m.seq) : room.skipped.has(m.seq)}
             score={m.role === 'anchor' ? scoreOf(liveEval, m.seq) : null}
+            evalDetail={m.role === 'anchor' ? evalDetailOf(liveEval, m.seq) : null}
           />
         ))}
         {room.generating && (

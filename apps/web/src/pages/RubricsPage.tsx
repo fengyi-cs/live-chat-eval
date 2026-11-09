@@ -1,6 +1,7 @@
-import { cloneRubric, DEFAULT_RUBRIC, RULE_KEYS, RULE_LABELS, type Dimension, type Rubric } from '@lce/core';
+import { cloneRubric, DEFAULT_RUBRIC, RULE_KEYS, RULE_LABELS, RULE_DESCRIPTIONS, type Dimension, type Rubric } from '@lce/core';
 import {
   DndContext,
+  KeyboardSensor,
   PointerSensor,
   closestCenter,
   useSensor,
@@ -10,13 +11,14 @@ import {
 import {
   SortableContext,
   arrayMove,
+  sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { GripVerticalIcon, PencilIcon } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, type RubricRow } from '../api.ts';
 import {
   Dialog,
@@ -107,10 +109,11 @@ function DimensionForm({ d, onChange }: { d: Dimension; onChange: (d: Dimension)
 interface SortableDimRowProps {
   id: string;
   d: Dimension;
+  contrib?: number; // S11: 占总分百分比 (0-100)
   onEdit: () => void;
 }
 
-function SortableDimRow({ id, d, onEdit }: SortableDimRowProps) {
+function SortableDimRow({ id, d, contrib, onEdit }: SortableDimRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   return (
     <div
@@ -138,6 +141,9 @@ function SortableDimRow({ id, d, onEdit }: SortableDimRowProps) {
         {d.scope === 'session' ? '整场' : '逐条'}
       </span>
       <span className="ml-1 text-xs text-neutral-400">×{d.weight}</span>
+      {contrib !== undefined && d.enabled && d.weight > 0 && (
+        <span className="ml-0.5 text-xs text-indigo-500 dark:text-indigo-400" title="占总分的比例">{contrib.toFixed(0)}%</span>
+      )}
       <button
         type="button"
         className="ml-auto rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
@@ -160,6 +166,8 @@ function DonutChart({ ruleWeight, llmWeight }: { ruleWeight: number; llmWeight: 
   const ruleLen = (ruleWeight / total) * circ;
   const llmLen = (llmWeight / total) * circ;
   const baseOffset = circ / 4;
+  const rulePct = Math.round((ruleWeight / total) * 100);
+  const llmPct = 100 - rulePct;
 
   return (
     <div className="flex items-center gap-5">
@@ -174,44 +182,49 @@ function DonutChart({ ruleWeight, llmWeight }: { ruleWeight: number; llmWeight: 
             strokeDasharray={`${llmLen} ${circ - llmLen}`} strokeDashoffset={baseOffset - ruleLen} />
         )}
         <text x={cx} y={cy - 4} textAnchor="middle" fontSize="11" fill="currentColor" className="text-neutral-600 dark:text-neutral-400">
-          {ruleWeight}:{llmWeight}
+          {rulePct}%
         </text>
         <text x={cx} y={cy + 9} textAnchor="middle" fontSize="9" fill="currentColor" className="text-neutral-400">
-          规则:LLM
+          规则占比
         </text>
       </svg>
-      <div className="min-w-0 flex-1 space-y-3">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 text-xs text-neutral-500">
+      <div className="min-w-0 flex-1 space-y-2">
+        <div className="flex items-center justify-between text-xs">
+          <span className="flex items-center gap-1.5 text-neutral-500">
             <span className="inline-block size-2.5 rounded-full bg-emerald-500" />规则基础分
-          </div>
-          <div className="flex items-center gap-2">
-            <input type="range" min={0} max={10} step={0.5} value={ruleWeight} className="flex-1 accent-emerald-500" readOnly />
-            <span className="w-6 text-sm font-semibold tabular-nums">{ruleWeight}</span>
-          </div>
+          </span>
+          <span className="font-semibold tabular-nums text-neutral-700 dark:text-neutral-300">{rulePct}%</span>
         </div>
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 text-xs text-neutral-500">
+        <div className="h-2 w-full overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
+          <div className="h-2 rounded-full bg-emerald-500 transition-all" style={{ width: `${rulePct}%` }} />
+        </div>
+        <div className="flex items-center justify-between text-xs">
+          <span className="flex items-center gap-1.5 text-neutral-500">
             <span className="inline-block size-2.5 rounded-full bg-indigo-500" />LLM 裁判分
-          </div>
-          <div className="flex items-center gap-2">
-            <input type="range" min={0} max={10} step={0.5} value={llmWeight} className="flex-1 accent-indigo-500" readOnly />
-            <span className="w-6 text-sm font-semibold tabular-nums">{llmWeight}</span>
-          </div>
+          </span>
+          <span className="font-semibold tabular-nums text-neutral-700 dark:text-neutral-300">{llmPct}%</span>
+        </div>
+        <div className="h-2 w-full overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
+          <div className="h-2 rounded-full bg-indigo-500 transition-all" style={{ width: `${llmPct}%` }} />
         </div>
       </div>
     </div>
   );
 }
 
-function RubricEditor({ row, onDeleted }: { row: RubricRow; onDeleted: () => void }) {
+function RubricEditor({ row, onDeleted, onDirtyChange }: { row: RubricRow; onDeleted: () => void; onDirtyChange?: (dirty: boolean) => void }) {
   const qc = useQueryClient();
   const [name, setName] = useState(row.name);
   const [r, setR] = useState<Rubric>(() => cloneRubric(row.rubric));
   const [editingDimIdx, setEditingDimIdx] = useState<number | null>(null);
   const dirty = name !== row.name || JSON.stringify(r) !== JSON.stringify(row.rubric);
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   const save = useMutation({ mutationFn: () => api.updateRubric(row.id, { name: name.trim(), rubric: r }), onSuccess: () => qc.invalidateQueries({ queryKey: ['rubrics'] }) });
   const remove = useMutation({
@@ -225,6 +238,17 @@ function RubricEditor({ row, onDeleted }: { row: RubricRow; onDeleted: () => voi
   const setRule = <K extends keyof Rubric['rules']>(k: K, p: Partial<Rubric['rules'][K]>) =>
     setR({ ...r, rules: { ...r.rules, [k]: { ...r.rules[k], ...p } } });
   const setDim = (i: number, d: Dimension) => setR({ ...r, dimensions: r.dimensions.map((x, j) => (j === i ? d : x)) });
+
+  // S11: 计算每项占综合总分的百分比
+  const totalCombo = (r.ruleWeight + r.llmWeight) || 1;
+  const rulePct = r.ruleWeight / totalCombo;
+  const llmPct = r.llmWeight / totalCombo;
+  const totalRuleWeight = RULE_KEYS.filter((k) => r.rules[k].enabled && r.rules[k].weight > 0).reduce((s, k) => s + r.rules[k].weight, 0) || 1;
+  const totalDimWeight = r.dimensions.filter((d) => d.enabled && d.weight > 0).reduce((s, d) => s + d.weight, 0) || 1;
+  const ruleContrib = (k: typeof RULE_KEYS[number]) => r.rules[k].enabled && r.rules[k].weight > 0
+    ? (r.rules[k].weight / totalRuleWeight) * rulePct * 100 : 0;
+  const dimContrib = (d: Dimension) => d.enabled && d.weight > 0
+    ? (d.weight / totalDimWeight) * llmPct * 100 : 0;
 
   function handleDimDragEnd(ev: DragEndEvent) {
     const { active, over } = ev;
@@ -259,28 +283,26 @@ function RubricEditor({ row, onDeleted }: { row: RubricRow; onDeleted: () => voi
           {save.error && <p className="w-full text-xs text-red-600">{save.error.message}</p>}
         </div>
 
-        <div className="grid gap-4 border-t border-neutral-100 pt-4 dark:border-neutral-800 sm:grid-cols-2">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 text-xs text-neutral-500">
-              <span className="inline-block size-2.5 rounded-full bg-emerald-500" />规则分权重
-            </div>
-            <div className="flex items-center gap-2">
-              <input type="range" min={0} max={10} step={0.5} value={r.ruleWeight}
-                onChange={(e) => setR({ ...r, ruleWeight: Number(e.target.value) })}
-                className="flex-1 accent-emerald-500" />
-              <span className="w-7 text-sm font-semibold tabular-nums">{r.ruleWeight}</span>
-            </div>
-          </div>
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 text-xs text-neutral-500">
-              <span className="inline-block size-2.5 rounded-full bg-indigo-500" />LLM 裁判分权重
-            </div>
-            <div className="flex items-center gap-2">
-              <input type="range" min={0} max={10} step={0.5} value={r.llmWeight}
-                onChange={(e) => setR({ ...r, llmWeight: Number(e.target.value) })}
-                className="flex-1 accent-indigo-500" />
-              <span className="w-7 text-sm font-semibold tabular-nums">{r.llmWeight}</span>
-            </div>
+        <div className="border-t border-neutral-100 pt-4 dark:border-neutral-800">
+          <p className="mb-2 text-xs text-neutral-500">规则分与 LLM 裁判分的合成比例（总和固定 100）</p>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5 text-xs text-neutral-500" htmlFor="rule-weight-range">
+              <span className="inline-block size-2.5 rounded-full bg-emerald-500" />规则
+            </label>
+            <input
+              id="rule-weight-range"
+              type="range" min={0} max={100} step={1}
+              value={r.ruleWeight}
+              onChange={(e) => {
+                const rw = Number(e.target.value);
+                setR({ ...r, ruleWeight: rw, llmWeight: 100 - rw });
+              }}
+              className="flex-1 accent-emerald-500"
+              aria-label={`规则分比例 ${r.ruleWeight}%`}
+            />
+            <span className="w-10 text-right text-sm font-semibold tabular-nums">{r.ruleWeight}%</span>
+            <span className="text-xs text-neutral-400">LLM</span>
+            <span className="w-10 text-right text-sm font-semibold tabular-nums">{r.llmWeight}%</span>
           </div>
         </div>
 
@@ -296,7 +318,7 @@ function RubricEditor({ row, onDeleted }: { row: RubricRow; onDeleted: () => voi
           {RULE_KEYS.map((k) => (
             <div key={k} className={`rounded-xl border p-3 transition-colors ${
               r.rules[k].enabled
-                ? 'border-emerald-200 bg-emerald-50/50 dark:border-emerald-800/60 dark:bg-emerald-950/20'
+                ? 'border-indigo-200 bg-indigo-50/40 dark:border-indigo-800/50 dark:bg-indigo-950/10'
                 : 'border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900'
             }`}>
               <div className="flex flex-wrap items-center gap-3">
@@ -305,6 +327,9 @@ function RubricEditor({ row, onDeleted }: { row: RubricRow; onDeleted: () => voi
                   <span className={`text-sm font-medium ${r.rules[k].enabled ? 'text-neutral-800 dark:text-neutral-100' : 'text-neutral-400'}`}>
                     {RULE_LABELS[k]}
                   </span>
+                  {RULE_DESCRIPTIONS[k] && (
+                    <span className="text-xs text-neutral-400" title={RULE_DESCRIPTIONS[k]}>ℹ️</span>
+                  )}
                 </label>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-neutral-400">权重</span>
@@ -314,29 +339,32 @@ function RubricEditor({ row, onDeleted }: { row: RubricRow; onDeleted: () => voi
                     onChange={(e) => setRule(k, { weight: Number(e.target.value) })}
                     className="w-24 accent-emerald-500 disabled:opacity-30" />
                   <span className="w-7 text-sm font-medium tabular-nums text-neutral-500">{r.rules[k].weight}</span>
+                  {r.rules[k].enabled && r.rules[k].weight > 0 && (
+                    <span className="text-xs text-emerald-600 dark:text-emerald-400" title="占综合总分的比例">{ruleContrib(k).toFixed(0)}%</span>
+                  )}
                 </div>
               </div>
               {r.rules[k].enabled && (
                 <>
                   {k === 'latency' && (
-                    <div className="mt-2.5 flex flex-wrap gap-3 border-t border-emerald-100 pt-2.5 dark:border-emerald-800/30">
+                    <div className="mt-2.5 flex flex-wrap gap-3 border-t border-indigo-100 pt-2.5 dark:border-indigo-800/20">
                       <div className="w-28"><Num label="满分秒数 ≤" value={r.rules.latency.goodSec} onChange={(goodSec) => setRule('latency', { goodSec })} /></div>
                       <div className="w-28"><Num label="0 分秒数 ≥" value={r.rules.latency.badSec} onChange={(badSec) => setRule('latency', { badSec })} /></div>
                     </div>
                   )}
                   {k === 'length' && (
-                    <div className="mt-2.5 flex flex-wrap gap-3 border-t border-emerald-100 pt-2.5 dark:border-emerald-800/30">
+                    <div className="mt-2.5 flex flex-wrap gap-3 border-t border-indigo-100 pt-2.5 dark:border-indigo-800/20">
                       <div className="w-24"><Num label="最少字数" value={r.rules.length.minChars} onChange={(minChars) => setRule('length', { minChars })} /></div>
                       <div className="w-24"><Num label="最多字数" value={r.rules.length.maxChars} onChange={(maxChars) => setRule('length', { maxChars })} /></div>
                     </div>
                   )}
                   {k === 'repetition' && (
-                    <div className="mt-2.5 flex flex-wrap gap-3 border-t border-emerald-100 pt-2.5 dark:border-emerald-800/30">
+                    <div className="mt-2.5 flex flex-wrap gap-3 border-t border-indigo-100 pt-2.5 dark:border-indigo-800/20">
                       <div className="w-28"><Num label="和前几条比" value={r.rules.repetition.window} onChange={(window) => setRule('repetition', { window })} /></div>
                     </div>
                   )}
                   {k === 'aiPhrases' && (
-                    <div className="mt-2.5 flex flex-wrap gap-3 border-t border-emerald-100 pt-2.5 dark:border-emerald-800/30">
+                    <div className="mt-2.5 flex flex-wrap gap-3 border-t border-indigo-100 pt-2.5 dark:border-indigo-800/20">
                       <div className="w-28"><Num label="每命中扣分" value={r.rules.aiPhrases.penaltyPerHit} onChange={(penaltyPerHit) => setRule('aiPhrases', { penaltyPerHit })} /></div>
                       <label className="block min-w-60 flex-1 space-y-1">
                         <span className="text-xs text-neutral-500">AI 腔词库（每行一个）</span>
@@ -390,6 +418,7 @@ function RubricEditor({ row, onDeleted }: { row: RubricRow; onDeleted: () => voi
                   key={i}
                   id={String(i)}
                   d={d}
+                  contrib={dimContrib(d)}
                   onEdit={() => setEditingDimIdx(i)}
                 />
               ))}
@@ -437,6 +466,8 @@ export function RubricsPage() {
   const qc = useQueryClient();
   const rubrics = useQuery({ queryKey: ['rubrics'], queryFn: api.rubrics });
   const [selected, setSelected] = usePersistentState<string | null>('lce.selectedRubric', null);
+  // S07: 跟踪当前编辑器的脏状态，切换模板时保护未保存修改
+  const dirtyRef = useRef(false);
   const create = useMutation({
     mutationFn: (n: number) => api.createRubric({ name: n === 0 ? '默认评分' : `评分标准 ${n + 1}`, rubric: DEFAULT_RUBRIC }),
     onSuccess: (row) => {
@@ -445,6 +476,13 @@ export function RubricsPage() {
     },
   });
   const active = rubrics.data?.find((r) => r.id === selected) ?? rubrics.data?.[0] ?? null;
+
+  const guardedSetSelected = (id: string) => {
+    if (dirtyRef.current && id !== selected) {
+      if (!confirm('当前模板有未保存的修改，切换模板将丢失修改。是否继续？')) return;
+    }
+    setSelected(id);
+  };
 
   return (
     <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
@@ -459,7 +497,7 @@ export function RubricsPage() {
         <ul className="space-y-1">
           {rubrics.data?.map((r) => (
             <li key={r.id}>
-              <button type="button" className={listItem(r.id === active?.id)} onClick={() => setSelected(r.id)}>
+              <button type="button" className={listItem(r.id === active?.id)} onClick={() => guardedSetSelected(r.id)}>
                 {r.name}
                 <span className="ml-2 text-xs text-neutral-500">{r.rubric.dimensions.filter((d) => d.enabled).length} 个维度</span>
               </button>
@@ -467,7 +505,7 @@ export function RubricsPage() {
           ))}
         </ul>
       </aside>
-      <main>{active ? <RubricEditor key={active.id} row={active} onDeleted={() => setSelected(null)} /> : <div className={emptyState}>点「新增」从内置默认模板开始</div>}</main>
+      <main>{active ? <RubricEditor key={active.id} row={active} onDeleted={() => setSelected(null)} onDirtyChange={(v) => { dirtyRef.current = v; }} /> : <div className={emptyState}>点「新增」从内置默认模板开始</div>}</main>
     </div>
   );
 }

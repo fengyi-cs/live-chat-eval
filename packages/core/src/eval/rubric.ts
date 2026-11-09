@@ -25,10 +25,14 @@ export const RULE_KEYS: readonly RuleKey[] = ['latency', 'missRate', 'length', '
 
 export const RULE_LABELS: Record<RuleKey, string> = {
   latency: '响应延迟',
-  missRate: '漏回率',
+  missRate: '未配对率',
   length: '回复长度',
   repetition: '重复度',
   aiPhrases: 'AI 腔词库',
+};
+
+export const RULE_DESCRIPTIONS: Partial<Record<RuleKey, string>> = {
+  missRate: '主播发言前无弹幕对应的观众消息占比（基于位置配对，非语义回应）',
 };
 
 interface RuleBase {
@@ -53,6 +57,7 @@ export interface Rubric {
 }
 
 export const DEFAULT_AI_PHRASES = [
+  // 强信号：自我确认为 AI、模板化语言
   '作为一个AI',
   '作为AI',
   '作为一名主播',
@@ -60,19 +65,16 @@ export const DEFAULT_AI_PHRASES = [
   '希望能帮到你',
   '如果你还有其他问题',
   '有什么可以帮你',
+  '我理解你的',
+  '非常感谢你的',
+  '这是一个很好的问题',
+  '以下是',
+  // 中强信号：明显的应答型开场白
   '总的来说',
   '总而言之',
   '综上所述',
   '值得注意的是',
   '需要注意的是',
-  '首先',
-  '其次',
-  '此外',
-  '另外，',
-  '我理解你的',
-  '非常感谢你的',
-  '这是一个很好的问题',
-  '以下是',
 ];
 
 const dim = (d: Omit<Dimension, 'enabled'>): Dimension => ({ ...d, enabled: true });

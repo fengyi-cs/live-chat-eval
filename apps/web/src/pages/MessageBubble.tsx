@@ -1,10 +1,18 @@
 import type { ActionEvent, SpeakerRole } from '@lce/core';
+import { useState } from 'react';
 import { formatLatency } from '../labels.ts';
 
 export interface TurnScore {
   composite: number | null;
   ruleScore: number | null;
   llmScore: number | null;
+}
+
+export interface TurnEvalDetail {
+  dimensions: { name: string; score: number; reason: string }[];
+  aiPhraseHits?: string[];
+  latencyMs?: number | null;
+  evalError?: string | null;
 }
 
 export interface BubbleMessage {
@@ -27,6 +35,7 @@ interface Props {
   highlighted?: boolean;
   pending?: boolean;
   score?: TurnScore | null;
+  evalDetail?: TurnEvalDetail | null;
 }
 
 const fmtScore = (n: number | null) => (n === null ? '—' : n.toFixed(0));
@@ -68,10 +77,11 @@ function TypingDots() {
   );
 }
 
-export function MessageBubble({ m, quote, unanswered, highlighted, pending, score }: Props) {
+export function MessageBubble({ m, quote, unanswered, highlighted, pending, score, evalDetail }: Props) {
   if (m.role === 'action' || m.role === 'ignore') return null;
   const isAnchor = m.role === 'anchor';
   const quoted = isAnchor && m.repliesTo?.length ? m.repliesTo.map((s) => quote?.(s)).filter(Boolean) : [];
+  const [showDetail, setShowDetail] = useState(false);
 
   return (
     <li className={`animate-message-in flex items-end gap-1.5 ${isAnchor ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -118,12 +128,14 @@ export function MessageBubble({ m, quote, unanswered, highlighted, pending, scor
             </span>
           )}
           {score && (
-            <span
-              className={`rounded-full px-1.5 py-0.5 font-medium tabular-nums cursor-default ${scoreTone(score.composite)}`}
-              title={`综合 ${fmtScore(score.composite)} · 规则 ${fmtScore(score.ruleScore)} · LLM ${fmtScore(score.llmScore)}`}
+            <button
+              type="button"
+              aria-label={`查看评分详情 · 综合 ${fmtScore(score.composite)}`}
+              className={`rounded-full px-1.5 py-0.5 font-medium tabular-nums ${scoreTone(score.composite)} ${evalDetail ? 'cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-current/40' : 'cursor-default'}`}
+              onClick={() => evalDetail && setShowDetail((v) => !v)}
             >
-              {fmtScore(score.composite)}
-            </span>
+              {fmtScore(score.composite)}{evalDetail ? (showDetail ? ' ▲' : ' ▼') : ''}
+            </button>
           )}
         </div>
 
@@ -133,9 +145,31 @@ export function MessageBubble({ m, quote, unanswered, highlighted, pending, scor
           </div>
         )}
 
-        <p className={`whitespace-pre-wrap text-sm leading-relaxed ${isAnchor ? 'text-right' : ''}`}>
+        <p className={`whitespace-pre-wrap text-sm leading-relaxed ${isAnchor ? 'text-left' : ''}`}>
           {pending && !m.text ? <TypingDots /> : (m.text || (pending ? <TypingDots /> : ''))}
         </p>
+
+                {showDetail && evalDetail && (
+          <div className="mt-2 space-y-1 border-t border-sky-100 pt-2 text-xs dark:border-sky-800/40">
+            {evalDetail.dimensions.map((d) => (
+              <div key={d.name}>
+                <span className="font-medium">{d.name} {d.score}</span>
+                <span className="text-neutral-500"> · {d.reason}</span>
+              </div>
+            ))}
+            {evalDetail.aiPhraseHits?.length ? (
+              <div className="text-amber-600">AI 腔命中：{evalDetail.aiPhraseHits.join('、')}</div>
+            ) : null}
+            {evalDetail.latencyMs !== null && evalDetail.latencyMs !== undefined && (
+              <div className="text-neutral-500">延迟 {(evalDetail.latencyMs / 1000).toFixed(1)}s</div>
+            )}
+            {evalDetail.evalError && <div className="text-red-600">打分失败：{evalDetail.evalError}</div>}
+            <div className="flex gap-3 text-neutral-400">
+              <span>规则 {fmtScore(score?.ruleScore ?? null)}</span>
+              <span>LLM {fmtScore(score?.llmScore ?? null)}</span>
+            </div>
+          </div>
+        )}
 
         {m.actions?.map((a) => (
           <p key={a.seq} className={`mt-1 text-xs text-emerald-700 dark:text-emerald-400 ${isAnchor ? 'text-right' : ''}`}>

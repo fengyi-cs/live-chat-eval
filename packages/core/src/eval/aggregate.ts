@@ -33,6 +33,8 @@ export interface EvalSummary {
   judged: number;
   failed: number;
   pending: number;
+  /** rubric 包含 LLM 维度但所有打分调用均失败，composite 仅含规则分，不可信 */
+  llmFullyFailed: boolean;
 }
 
 const r1 = (n: number | null) => (n === null ? null : round1(n));
@@ -56,15 +58,21 @@ export function summarize(rubric: Rubric, rules: RuleResult, items: readonly Eva
     { value: rules.score, weight: rubric.ruleWeight },
     { value: llmScore, weight: rubric.llmWeight },
   ]);
+  const hasLlmDims = rubric.dimensions.some((d) => d.enabled);
+  const failed = items.filter((it) => it.status === 'error').length;
+  const judged = items.filter((it) => it.status === 'done').length;
+  const llmFullyFailed = hasLlmDims && llmScore === null && failed > 0 && judged === 0;
+
   return {
     composite: r1(composite),
     ruleScore: rules.score,
     llmScore: r1(llmScore),
     dimensions,
     turnCount: items.filter((it) => it.kind === 'turn').length,
-    judged: items.filter((it) => it.status === 'done').length,
-    failed: items.filter((it) => it.status === 'error').length,
+    judged,
+    failed,
     pending: items.filter((it) => it.status === 'pending').length,
+    llmFullyFailed,
   };
 }
 

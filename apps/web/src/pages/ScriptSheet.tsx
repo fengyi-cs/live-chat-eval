@@ -222,10 +222,11 @@ interface Props {
   anchorName: string | null;
   configId: string | null;
   paceKey: PaceKey;
+  liveEval?: { rubricId: string; providerId?: string; model?: string };
   onStartScript: (info: RunInfo) => void;
 }
 
-export function ScriptSheet({ open, onOpenChange, anchorName, configId, paceKey, onStartScript }: Props) {
+export function ScriptSheet({ open, onOpenChange, anchorName, configId, paceKey, liveEval, onStartScript }: Props) {
   const queryClient = useQueryClient();
   const scripts = useQuery({ queryKey: ['scripts'], queryFn: api.scripts });
   const [selected, setSelected] = usePersistentState<string | null>('lce.room.script', null);
@@ -242,7 +243,7 @@ export function ScriptSheet({ open, onOpenChange, anchorName, configId, paceKey,
   const startScript = useMutation({
     mutationFn: (scriptId: string) => {
       if (!anchorName || !configId) throw new Error('请先选择主播和回复配置');
-      return api.startSim({ mode: 'script', anchorName, configId, scriptId, pace: paceOf(paceKey) } as StartSim);
+      return api.startSim({ mode: 'script', anchorName, configId, scriptId, pace: paceOf(paceKey), liveEval } as StartSim);
     },
     onSuccess: (info) => {
       queryClient.invalidateQueries({ queryKey: ['sims'] });

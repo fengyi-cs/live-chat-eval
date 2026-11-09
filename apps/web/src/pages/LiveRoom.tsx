@@ -59,7 +59,17 @@ function ActiveSession({
 
   const stopMut = useMutation({ mutationFn: () => api.stopSim(sessionId) });
 
-  if (room.gone && !room.ended) return <SessionView id={sessionId} onDeleted={onClosed} />;
+  if (room.gone && !room.ended) return (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex shrink-0 items-center gap-2 border-b border-neutral-200 px-3 py-2 dark:border-neutral-800">
+        <span className="text-sm text-neutral-500">查看历史场次</span>
+        <button type="button" className={`${secondaryBtn} ml-auto`} onClick={onClosed}>新建一场</button>
+      </div>
+      <div className="flex-1 overflow-y-auto px-3 py-3">
+        <SessionView id={sessionId} onDeleted={onClosed} />
+      </div>
+    </div>
+  );
   if (!room.info) return <p className="flex flex-1 items-center justify-center text-sm text-neutral-500">连接中…</p>;
 
   const showInput = room.info.mode === 'live' && !room.ended;
@@ -99,7 +109,17 @@ function ActiveSession({
           <button type="button" className={secondaryBtn} onClick={() => onClosed()}>新建一场</button>
         </div>
       )}
-      {room.ended && room.gone && <SessionView id={sessionId} onDeleted={onClosed} />}
+      {room.ended && room.gone && (
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex shrink-0 items-center gap-2 border-b border-neutral-200 px-3 py-2 dark:border-neutral-800">
+            <span className="text-sm text-neutral-500">模拟已结束 · 查看详情</span>
+            <button type="button" className={`${secondaryBtn} ml-auto`} onClick={onClosed}>新建一场</button>
+          </div>
+          <div className="flex-1 overflow-y-auto px-3 py-3">
+            <SessionView id={sessionId} onDeleted={onClosed} />
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -260,6 +280,9 @@ export function LiveRoom() {
               <ModelPicker value={liveEvalJudge} onChange={setLiveEvalJudge} placeholder="使用规则评分，无需模型" />
             </div>
           </div>
+          {liveEvalEnabled && !liveEvalRubricId && (
+            <p className="text-xs text-amber-700 dark:text-amber-400">⚠️ 实时评估已开启但尚未选择评分标准，开播后将不会评分</p>
+          )}
         </div>
       )}
 
@@ -271,6 +294,7 @@ export function LiveRoom() {
         anchorName={effectiveAnchor}
         configId={effectiveConfig}
         paceKey={paceKey}
+        liveEval={effectiveLiveEval}
         onStartScript={handleStarted}
       />
 

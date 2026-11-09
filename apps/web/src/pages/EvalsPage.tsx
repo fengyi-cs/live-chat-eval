@@ -1,6 +1,7 @@
 import { RULE_KEYS, RULE_LABELS, turnLlmScore } from '@lce/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { api, type EvalDetail, type EvalEvent, type EvalItemView, type StoredMessage } from '../api.ts';
 import { ModelPicker } from '../components/ModelPicker.tsx';
 import { card, emptyState, input, listItem, primaryBtn, secondaryBtn } from '../ui.ts';
@@ -30,6 +31,7 @@ function Bar({ value }: { value: number | null }) {
 
 function StartPanel({ onStarted }: { onStarted: (id: string) => void }) {
   const qc = useQueryClient();
+  const [searchParams] = useSearchParams();
   const sessions = useQuery({ queryKey: ['sessions'], queryFn: api.sessions });
   const rubrics = useQuery({ queryKey: ['rubrics'], queryFn: api.rubrics });
   const [sessionId, setSessionId] = usePersistentState<string | null>('lce.eval.session', null);
@@ -38,7 +40,17 @@ function StartPanel({ onStarted }: { onStarted: (id: string) => void }) {
   const [temperature, setTemperature] = usePersistentState('lce.eval.temperature', 0);
   const [samples, setSamples] = usePersistentState('lce.eval.samples', 1);
 
+  // S06: 自动选中 URL 参数里的场次
+  const sessionParam = searchParams.get('session');
   const done = sessions.data?.filter((s) => s.status !== 'running') ?? [];
+  useEffect(() => {
+    if (sessionParam && done.some((s) => s.id === sessionParam)) {
+      setSessionId(sessionParam);
+    }
+  // only run when sessions data loads or param changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionParam, sessions.data]);
+
   const session = done.find((s) => s.id === sessionId) ?? done[0];
   const rubric = rubrics.data?.find((r) => r.id === rubricId) ?? rubrics.data?.[0];
   const start = useMutation({
@@ -51,6 +63,13 @@ function StartPanel({ onStarted }: { onStarted: (id: string) => void }) {
 
   const needsJudge = rubric?.rubric.dimensions.some((d) => d.enabled) ?? false;
   const missingJudge = needsJudge && (!judgeChoice.providerId || !judgeChoice.model);
+  // S22: 预计调用量
+  const anchorCount = session?.messageCount ?? 0; // 暂用总消息数作为指标
+  const enabledDims = rubric?.rubric.dimensions.filter((d) => d.enabled).length ?? 0;
+  const hasSessionDim = rubric?.rubric.dimensions.some((d) => d.enabled && d.scope === 'session') ?? false;
+  const estCalls = needsJudge && session
+    ? (anchorCount * enabledDims + (hasSessionDim ? 1 : 0)) * samples
+    : 0;
 
   return (
     <section className={`${card} space-y-3`}>
@@ -100,6 +119,9 @@ function StartPanel({ onStarted }: { onStarted: (id: string) => void }) {
           </select>
         </label>
       </div>
+      {needsJudge && estCalls > 0 && (
+        <p className="text-xs text-neutral-500">预计 LLM 调用：{estCalls} 次（最多 {estCalls * 3} 次含重试）</p>
+      )}
       <button type="button" className={`${primaryBtn} w-full`} disabled={!session || !rubric || start.isPending || missingJudge} onClick={() => start.mutate()}>
         开始评估
       </button>
@@ -219,6 +241,8 @@ function Report({ id, onDeleted }: { id: string; onDeleted: () => void }) {
   const [viewMode, setViewMode] = useState<'detail' | 'stream'>('detail');
   const [page, setPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
+  // S21: 状态过滤
+  const [filterMode, setFilterMode] = useState<'all' | 'low' | 'error'>('all');
 
   const sessionId = (live ?? detail.data)?.sessionId ?? '';
   const sessionQ = useQuery({
@@ -296,6 +320,11 @@ function Report({ id, onDeleted }: { id: string; onDeleted: () => void }) {
           </button>
         </div>
         <div className="grid grid-cols-3 gap-3 text-center">
+          {s.llmFullyFailed && (
+            <div className="col-span-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-left dark:border-amber-700/60 dark:bg-amber-950/20">
+              <p className="text-xs font-medium text-amber-800 dark:text-amber-300">⚠️ LLM 裁判全部失败 — 以下综合指数仅含规则分，不得与完整评估结果比较</p>
+            </div>
+          )}
           {(
             [
               ['综合指数', s.composite],
@@ -306,8 +335,10 @@ function Report({ id, onDeleted }: { id: string; onDeleted: () => void }) {
             <div key={label} className="overflow-hidden rounded-lg bg-neutral-50 dark:bg-neutral-800/60">
               <div className={`h-1 ${(v ?? 0) >= 80 ? 'bg-emerald-400' : (v ?? 0) >= 60 ? 'bg-amber-400' : v === null ? 'bg-neutral-200 dark:bg-neutral-700' : 'bg-red-400'}`} />
               <div className="p-3">
-                <div className={`text-2xl font-bold tabular-nums ${tone(v)}`}>{fmt(v)}</div>
-                <div className="mt-0.5 text-xs text-neutral-500">{label}</div>
+                <div className={`text-2xl font-bold tabular-nums ${
+                  s.llmFullyFailed && label === '综合指数' ? 'text-amber-600' : tone(v)
+                }`}>{fmt(v)}</div>
+                <div className="mt-0.5 text-xs text-neutral-500">{label}{s.llmFullyFailed && label === '综合指数' ? ' · 仅规则' : ''}</div>
               </div>
             </div>
           ))}
@@ -316,7 +347,10 @@ function Report({ id, onDeleted }: { id: string; onDeleted: () => void }) {
 
       <section className={`${card} grid gap-4 md:grid-cols-2`}>
         <div className="space-y-2">
-          <h3 className="text-sm font-medium">LLM 维度</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-medium">LLM 维度</h3>
+            <span className="text-xs text-neutral-400" title="裁判模型给出 1-5 分，按 (score−1)/4×100 换算为 0-100">· 1−5分 → (n−1)/4×100</span>
+          </div>
           {s.dimensions.map((dim) => (
             <div key={dim.key} className="space-y-1 text-sm">
               <div className="flex justify-between">
@@ -358,6 +392,22 @@ function Report({ id, onDeleted }: { id: string; onDeleted: () => void }) {
         <section className={`${card} space-y-3`}>
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="mr-auto text-sm font-medium">逐条明细</h3>
+            <div className="flex rounded-lg border border-neutral-200 text-xs dark:border-neutral-700" role="group" aria-label="过滤">
+              {(['all', 'low', 'error'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  className={`px-2 py-1 transition-colors ${
+                    filterMode === m
+                      ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900'
+                      : 'hover:bg-neutral-50 dark:hover:bg-neutral-800'
+                  } first:rounded-l-lg last:rounded-r-lg`}
+                  onClick={() => { setFilterMode(m); setPage(1); }}
+                >
+                  {m === 'all' ? '全部' : m === 'low' ? '低分 <60' : '失败'}
+                </button>
+              ))}
+            </div>
             <input
               type="search"
               className={`${input} max-w-48 py-1 text-xs`}
@@ -368,9 +418,14 @@ function Report({ id, onDeleted }: { id: string; onDeleted: () => void }) {
           </div>
           {(() => {
             const turnItems = d.items.filter((it) => it.kind === 'turn');
+            const afterFilter = filterMode === 'error'
+              ? turnItems.filter((it) => it.status === 'error')
+              : filterMode === 'low'
+                ? turnItems.filter((it) => { const llm = turnLlmScore(d.rubric, it); return it.status === 'done' && llm !== null && llm < 60; })
+                : turnItems;
             const filtered = searchTerm
-              ? turnItems.filter((it) => (it.text ?? '').toLowerCase().includes(searchTerm.toLowerCase()))
-              : turnItems;
+              ? afterFilter.filter((it) => (it.text ?? '').toLowerCase().includes(searchTerm.toLowerCase()))
+              : afterFilter;
             const pageSize = 20;
             const totalPages = Math.ceil(filtered.length / pageSize) || 1;
             const curPage = Math.min(page, totalPages);

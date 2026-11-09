@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { api } from '../api.ts';
 import { SOURCE_LABELS, STATUS_LABELS, STATUS_TONE } from '../labels.ts';
 import { usePersistentState } from '../usePersistentState.ts';
@@ -11,13 +11,18 @@ import { UploadIcon, PlayCircleIcon } from 'lucide-react';
 
 export function SessionsPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const qc = useQueryClient();
   const sessions = useQuery({ queryKey: ['sessions'], queryFn: api.sessions });
   const [selected, setSelected] = usePersistentState<string | null>('lce.sessions.selected', null);
   const [importOpen, setImportOpen] = useState(false);
 
   const selectedExists = sessions.data?.some((s) => s.id === selected) ?? true;
-  const activeId = selectedExists ? selected : null;
+  // S06: 如果 URL 传入了 session 参数，在数据加载后自动选中对应场次
+  const sessionParam = searchParams.get('session');
+  const activeId = sessionParam && sessions.data?.some((s) => s.id === sessionParam)
+    ? sessionParam
+    : selectedExists ? selected : null;
 
   const list = sessions.data ?? [];
 

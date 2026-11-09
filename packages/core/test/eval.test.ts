@@ -188,7 +188,7 @@ describe('judge prompt and parsing', () => {
   });
 
   it('session prompt keeps the latest lines within the budget and drops actions', () => {
-    const user = buildSessionJudgeMessages(session, dims([{ key: 'session_x', scope: 'session' }]), 30)[1]!.content;
+    const user = buildSessionJudgeMessages(session, dims([{ key: 'session_x', scope: 'session' }]), 50)[1]!.content;
     expect(user).toContain('【观众 路人】在吗');
     expect(user).not.toContain('主播晚上好');
     expect(user).not.toContain('挥手');

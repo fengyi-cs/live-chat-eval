@@ -21,6 +21,10 @@ const JUDGE_SYSTEM =
 const visible = (m: EvalMessage) => m.role === 'viewer' || m.role === 'anchor';
 const lineOf = (m: EvalMessage, anchorName: string) => (m.role === 'anchor' ? `【主播 ${anchorName}】${m.text}` : `【观众 ${m.speaker}】${m.text}`);
 
+const fmtTime = (time: string) => ` [${time.slice(11, 19)}]`;
+const lineOfWithTime = (m: EvalMessage, anchorName: string) =>
+  (m.role === 'anchor' ? `【主播 ${anchorName}】${m.text}` : `【观众 ${m.speaker}】${m.text}`) + fmtTime(m.time);
+
 function personaSection(session: EvalSession) {
   return `## 主播人设\n${session.personaPrompt.trim() || `（没有提供人设，按真人主播「${session.anchorName}」的标准评）`}`;
 }
@@ -58,7 +62,7 @@ export function buildTurnJudgeMessages(session: EvalSession, turnSeq: number, di
 }
 
 export function buildSessionJudgeMessages(session: EvalSession, dims: readonly Dimension[], budget = SESSION_TRANSCRIPT_BUDGET): ChatMessage[] {
-  const lines = session.messages.filter(visible).map((m) => lineOf(m, session.anchorName));
+  const lines = session.messages.filter(visible).map((m) => lineOfWithTime(m, session.anchorName));
   const kept: string[] = [];
   let used = 0;
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -67,7 +71,7 @@ export function buildSessionJudgeMessages(session: EvalSession, dims: readonly D
     kept.unshift(lines[i]!);
   }
   const omitted = lines.length - kept.length;
-  const transcript = (omitted > 0 ? [`（前面省略 ${omitted} 条）`] : []).concat(kept).join('\n');
+  const transcript = (omitted > 0 ? [`（前面省略 ${omitted} 条，以下为尾部 ${kept.length} 条的片段评分，开头内容不可见）`] : []).concat(kept).join('\n');
   const sections = [
     personaSection(session),
     `## 整场直播记录\n${transcript}`,

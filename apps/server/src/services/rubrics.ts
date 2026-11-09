@@ -44,6 +44,14 @@ export const rubricSchema = z
     if (r.rules.length.maxChars < r.rules.length.minChars) ctx.addIssue({ code: 'custom', message: '回复长度：最多字数不能小于最少字数' });
     const enabled = r.dimensions.filter((d) => d.enabled).length + RULE_KEYS.filter((k) => r.rules[k].enabled).length;
     if (enabled === 0) ctx.addIssue({ code: 'custom', message: '至少启用一个维度或一条规则' });
+    // S10: 启用的项必须有有效权重，否则合成分永远是 null
+    const hasEffectiveRuleWeight = RULE_KEYS.some((k) => r.rules[k].enabled && r.rules[k].weight > 0);
+    const hasEffectiveDimWeight = r.dimensions.some((d) => d.enabled && d.weight > 0);
+    const ruleContributes = r.ruleWeight > 0 && hasEffectiveRuleWeight;
+    const llmContributes = r.llmWeight > 0 && hasEffectiveDimWeight;
+    if (enabled > 0 && !ruleContributes && !llmContributes) {
+      ctx.addIssue({ code: 'custom', message: '启用的项没有有效权重，无法计算综合分。请确保规则分权重或 LLM 分权重大于 0，且对应已启用项也有权重。' });
+    }
   });
 
 export function parseRubric(input: unknown): Rubric {
