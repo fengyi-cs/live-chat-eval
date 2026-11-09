@@ -9,6 +9,7 @@ import {
   parseJudgeOutput,
   runJudge,
   summarize,
+  turnComposite,
   turnLlmScore,
   type Dimension,
   type EvalItemResult,
@@ -142,6 +143,13 @@ describe('summarize', () => {
     expect(turnLlmScore(rubric, items[0]!)).toBe(83.3);
     expect(turnLlmScore(rubric, items[2]!)).toBe(75);
     expect(turnLlmScore(rubric, items[3]!)).toBeNull();
+  });
+
+  it('turnComposite weights per-turn rule metrics, then mixes them with the LLM score', () => {
+    const turnRules = { latency: { score: 100, value: 2000 }, aiPhrases: { score: 50, value: 2, hits: ['x', 'y'] } };
+    expect(turnComposite(rubric, turnRules, items[0])).toEqual({ ruleScore: 66.7, llmScore: 83.3, composite: 78.3 });
+    expect(turnComposite(rubric, turnRules, items[3])).toEqual({ ruleScore: 66.7, llmScore: null, composite: 66.7 });
+    expect(turnComposite(rubric, undefined, undefined)).toEqual({ ruleScore: null, llmScore: null, composite: null });
   });
 });
 

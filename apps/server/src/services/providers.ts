@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { detectProvider, normalizeBaseUrl, resolveModels, type FetchLike, type ProviderConfig, type ProviderKind } from '@lce/core';
+import { endpointFor, detectProvider, probeModels, resolveModels, type FetchLike, type ProbeAttempt, type ProviderConfig, type ProviderKind } from '@lce/core';
 import { asc, eq } from 'drizzle-orm';
 import type { Db } from '../db/client.ts';
 import { providers } from '../db/schema.ts';
-import { ConflictError, NotFoundError } from './errors.ts';
+import { BadRequestError, ConflictError, NotFoundError } from './errors.ts';
 
 type ProviderRow = typeof providers.$inferSelect;
 
@@ -20,7 +20,7 @@ export interface ProviderInput {
   baseUrl: string;
   kind?: ProviderKind;
   apiKey?: string;
-  defaultModel?: string | null;
+  enabledModels?: string[];
 }
 
 const KEY_TAIL = 4;
@@ -35,9 +35,7 @@ export function toPublic({ apiKey, ...row }: ProviderRow) {
 }
 
 export function resolveEndpoint(baseUrl: string, kind?: ProviderKind) {
-  if (!kind) return detectProvider(baseUrl);
-  const detected = detectProvider(baseUrl);
-  return { kind, baseUrl: detected.kind === kind ? detected.baseUrl : normalizeBaseUrl(baseUrl) };
+  return kind ? endpointFor(baseUrl, kind) : detectProvider(baseUrl);
 }
 
 export function configOf(row: Pick<ProviderRow, 'kind' | 'baseUrl' | 'apiKey'>): ProviderConfig {
@@ -70,7 +68,7 @@ export function createProvider(db: Db, input: ProviderInput) {
       kind: endpoint.kind,
       baseUrl: endpoint.baseUrl,
       apiKey: input.apiKey || null,
-      defaultModel: input.defaultModel ?? null,
+      enabledModels: dedupe(input.enabledModels ?? []),
     })
     .returning()
     .get();
@@ -89,7 +87,7 @@ export function updateProvider(db: Db, id: string, input: Partial<ProviderInput>
       kind: endpoint.kind,
       baseUrl: endpoint.baseUrl,
       apiKey: input.apiKey === undefined ? current.apiKey : input.apiKey || null,
-      defaultModel: input.defaultModel === undefined ? current.defaultModel : input.defaultModel,
+      enabledModels: input.enabledModels === undefined ? current.enabledModels : dedupe(input.enabledModels),
       ...(endpointChanged && endpoint.baseUrl !== current.baseUrl ? { models: [], modelsFetchedAt: null } : {}),
     })
     .where(eq(providers.id, id))
@@ -103,15 +101,38 @@ export function deleteProvider(db: Db, id: string) {
   if (!res.changes) throw new ProviderNotFoundError();
 }
 
-export async function refreshModels(db: Db, id: string, fetchImpl?: FetchLike) {
+/**
+ * 刷新模型列表。detect 为 true 时依次尝试几种接口格式，并把接口类型改成拉到模型的那一种。
+ * 模型池是用户的选择，刷新不改动它。
+ */
+export async function refreshModels(db: Db, id: string, fetchImpl?: FetchLike, detect = false) {
   const row = getProvider(db, id);
-  const { baseUrl, models } = await resolveModels(configOf(row), { fetch: fetchImpl });
-  const defaultModel = row.defaultModel && models.some((m) => m.id === row.defaultModel) ? row.defaultModel : (models[0]?.id ?? null);
+  let result: { kind: ProviderKind; baseUrl: string; models: { id: string; name?: string }[]; attempts: ProbeAttempt[] };
+  if (detect) {
+    result = await probeModels(row.baseUrl, row.apiKey ?? undefined, { fetch: fetchImpl });
+  } else {
+    const { baseUrl, models } = await resolveModels(configOf(row), { fetch: fetchImpl });
+    result = { kind: row.kind, baseUrl, models, attempts: [{ kind: row.kind, baseUrl, count: models.length, error: null }] };
+  }
   const updated = db
     .update(providers)
-    .set({ baseUrl, models, modelsFetchedAt: new Date(), defaultModel })
+    .set({ kind: result.kind, baseUrl: result.baseUrl, models: result.models, modelsFetchedAt: new Date() })
     .where(eq(providers.id, id))
     .returning()
     .get();
-  return toPublic(updated);
+  return { ...toPublic(updated), attempts: result.attempts };
+}
+
+function dedupe(models: readonly string[]) {
+  return [...new Set(models.map((m) => m.trim()).filter(Boolean))];
+}
+
+/** 取模型池里的一个模型；不在池里（被停用或从没启用）时报错 */
+export function resolvePoolModel(db: Db, providerId: string | null | undefined, model: string | null | undefined, what = '模型') {
+  if (!providerId || !model?.trim()) throw new BadRequestError(`还没有选择${what}`);
+  const provider = getProvider(db, providerId);
+  if (!provider.enabledModels.includes(model.trim())) {
+    throw new BadRequestError(`${what}「${provider.name} / ${model}」不在模型池里，请到「设置 · 模型服务」启用它，或重新选择`);
+  }
+  return { provider, model: model.trim() };
 }

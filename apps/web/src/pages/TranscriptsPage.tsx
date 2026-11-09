@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../api.ts';
 import { SOURCE_LABELS, STATUS_LABELS, STATUS_TONE } from '../labels.ts';
 import { usePersistentState } from '../usePersistentState.ts';
+import { card, emptyState, listItem } from '../ui.ts';
 import { ImportPanel } from './ImportPanel.tsx';
 import { SessionView } from './SessionView.tsx';
 
@@ -16,7 +17,7 @@ export function TranscriptsPage() {
     <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
       <aside className="space-y-4">
         <ImportPanel onImported={setSelected} />
-        <section className="rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
+        <section className={card}>
           <h2 className="mb-2 text-sm font-medium">会话记录</h2>
           {sessions.isPending && <p className="text-sm text-neutral-500">加载中…</p>}
           {sessions.error && <p className="text-sm text-red-600">{sessions.error.message}</p>}
@@ -27,15 +28,13 @@ export function TranscriptsPage() {
                 <button
                   type="button"
                   onClick={() => setSelected(s.id)}
-                  className={`w-full rounded px-2 py-1.5 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 ${
-                    s.id === activeId ? 'bg-neutral-100 font-medium dark:bg-neutral-800' : ''
-                  }`}
+                  className={listItem(s.id === activeId)}
                 >
                   <span>{s.anchorName}</span>
                   <span className="ml-2 text-xs text-neutral-500">
                     {s.externalId ? `场次 ${s.externalId}` : SOURCE_LABELS[s.source]} · {s.messageCount} 条
                   </span>
-                  {s.status !== 'done' && <span className={`ml-1 rounded px-1 text-xs ${STATUS_TONE[s.status]}`}>{STATUS_LABELS[s.status]}</span>}
+                  {s.status !== 'done' && <span className={`ml-1 rounded-full px-1.5 py-0.5 text-xs ${STATUS_TONE[s.status]}`}>{STATUS_LABELS[s.status]}</span>}
                 </button>
               </li>
             ))}
@@ -46,7 +45,7 @@ export function TranscriptsPage() {
         {activeId ? (
           <SessionView id={activeId} onDeleted={() => setSelected(null)} />
         ) : (
-          <div className="rounded-lg border border-dashed border-neutral-300 p-10 text-center text-sm text-neutral-500 dark:border-neutral-700">
+          <div className={emptyState}>
             选择左侧的会话查看对话与配对结果
           </div>
         )}

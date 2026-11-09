@@ -72,9 +72,9 @@ async function finished(app: App, id: string) {
 async function setup(app: App) {
   const { sessionId } = await json(send(app, 'POST', '/api/imports', { content: sample, roles }));
   await send(app, 'PATCH', `/api/anchors/${encodeURIComponent('小鹿')}`, { personaPrompt: '你是小鹿，东北姑娘。' });
-  const provider = await json(send(app, 'POST', '/api/providers', { name: '裁判', baseUrl: 'https://judge.example/v1', defaultModel: 'judge-m' }));
+  const provider = await json(send(app, 'POST', '/api/providers', { name: '裁判', baseUrl: 'https://judge.example/v1', enabledModels: ['judge-m'] }));
   const rubric = await json(send(app, 'POST', '/api/rubrics', { name: '默认评分', rubric: DEFAULT_RUBRIC }));
-  return { sessionId: sessionId as string, providerId: provider.id as string, rubricId: rubric.id as string };
+  return { sessionId: sessionId as string, providerId: provider.id as string, model: 'judge-m', rubricId: rubric.id as string };
 }
 
 describe('rubrics api', () => {

@@ -1,7 +1,7 @@
 import { mean, round1, toHundred, weightedMean } from './math.ts';
-import type { Dimension, DimensionScope, Rubric } from './rubric.ts';
+import type { Dimension, DimensionScope, RuleKey, Rubric } from './rubric.ts';
 import type { JudgeScores } from './judge.ts';
-import type { RuleResult } from './types.ts';
+import type { RuleResult, TurnRules } from './types.ts';
 
 export type EvalItemStatus = 'pending' | 'done' | 'error' | 'skipped';
 
@@ -78,4 +78,22 @@ export function turnLlmScore(rubric: Rubric, item: EvalItemResult): number | nul
       return { value: typeof s === 'number' ? toHundred(s) : null, weight: d.weight };
     });
   return r1(weightedMean(parts));
+}
+
+/** 单条发言的规则分（0-100）：只有逐条可算的规则（漏回率是整场指标，不计入） */
+export function turnRuleScore(rubric: Rubric, rules: TurnRules | undefined): number | null {
+  if (!rules) return null;
+  const parts = (Object.keys(rules) as RuleKey[]).map((k) => ({ value: rules[k]?.score ?? null, weight: rubric.rules[k].weight }));
+  return r1(weightedMean(parts));
+}
+
+/** 单条发言的综合分：按模板里规则分与 LLM 分的权重合成，只有一边有分时取那一边 */
+export function turnComposite(rubric: Rubric, rules: TurnRules | undefined, item: EvalItemResult | undefined) {
+  const ruleScore = turnRuleScore(rubric, rules);
+  const llmScore = item ? turnLlmScore(rubric, item) : null;
+  const composite = weightedMean([
+    { value: ruleScore, weight: rubric.ruleWeight },
+    { value: llmScore, weight: rubric.llmWeight },
+  ]);
+  return { ruleScore, llmScore, composite: r1(composite) };
 }

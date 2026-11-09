@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { api, type AnchorDetail } from '../api.ts';
+import { api, type AnchorDetail, type AnchorSource } from '../api.ts';
 import { card, emptyState, input, listItem, primaryBtn, secondaryBtn } from '../ui.ts';
 import { usePersistentState } from '../usePersistentState.ts';
 import { ConfigEditor } from './ConfigEditor.tsx';
@@ -71,6 +71,17 @@ function PersonaEditor({ anchor }: { anchor: AnchorDetail }) {
   );
 }
 
+export const SOURCE_LABEL: Record<AnchorSource, string> = { import: '导入', manual: '手建' };
+
+const sourceTone: Record<AnchorSource, string> = {
+  import: 'bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-200',
+  manual: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300',
+};
+
+export function SourceBadge({ source }: { source: AnchorSource }) {
+  return <span className={`rounded px-1 text-xs ${sourceTone[source]}`}>{SOURCE_LABEL[source]}</span>;
+}
+
 function nextConfigName(existing: readonly string[]) {
   const taken = new Set(existing);
   let i = existing.length + 1;
@@ -81,12 +92,19 @@ function nextConfigName(existing: readonly string[]) {
 function AnchorView({ name, onDeleted }: { name: string; onDeleted: () => void }) {
   const queryClient = useQueryClient();
   const detail = useQuery({ queryKey: ['anchor', name], queryFn: () => api.anchor(name) });
-  const [selectedConfig, setSelectedConfig] = usePersistentState<string | null>(`lce.anchorConfig.${name}`, null);
+  const [code, setCode] = useState<string | null>(null);
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['anchor', name] });
     queryClient.invalidateQueries({ queryKey: ['anchors'] });
   };
+  const saveCode = useMutation({
+    mutationFn: (value: string) => api.updateAnchor(name, { code: value.trim() || null }),
+    onSuccess: () => {
+      setCode(null);
+      refresh();
+    },
+  });
   const remove = useMutation({
     mutationFn: () => api.deleteAnchor(name),
     onSuccess: () => {
@@ -94,63 +112,81 @@ function AnchorView({ name, onDeleted }: { name: string; onDeleted: () => void }
       onDeleted();
     },
   });
-  const addConfig = useMutation({
-    mutationFn: (names: string[]) => api.createConfig(name, { name: nextConfigName(names) }),
-    onSuccess: (cfg) => {
-      refresh();
-      setSelectedConfig(cfg.id);
-    },
-  });
 
   if (detail.isPending) return <p className="text-sm text-neutral-500">加载中…</p>;
   if (detail.error) return <p className="text-sm text-red-600">{detail.error.message}</p>;
 
   const a = detail.data;
-  const config = a.configs.find((c) => c.id === selectedConfig) ?? a.configs[0] ?? null;
+  const codeDraft = code ?? a.code ?? '';
 
   return (
     <div className="space-y-4">
       <section className={`${card} flex flex-wrap items-start gap-2`}>
-        <div className="mr-auto">
-          <h2 className="font-medium">
+        <div className="mr-auto space-y-1">
+          <h2 className="flex items-center gap-2 font-medium">
             {a.name}
-            {a.code && <span className="ml-2 text-sm text-neutral-500">{a.code}</span>}
+            <SourceBadge source={a.source} />
           </h2>
-          <p className="text-xs text-neutral-500">
-            {a.sessionCount} 个会话 · {a.configs.length} 套配置
-          </p>
+          <p className="text-xs text-neutral-500">{a.sessionCount} 个会话</p>
         </div>
-        <button type="button" className={`${secondaryBtn} text-red-600`} onClick={() => confirm(`删除主播「${a.name}」及其所有配置？`) && remove.mutate()}>
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            saveCode.mutate(codeDraft);
+          }}
+        >
+          <input className={`${input} w-32`} value={codeDraft} onChange={(e) => setCode(e.target.value)} placeholder="编号（可选）" aria-label="主播编号" maxLength={50} />
+          <button type="submit" className={secondaryBtn} disabled={code === null || saveCode.isPending}>
+            保存编号
+          </button>
+        </form>
+        <button type="button" className={`${secondaryBtn} text-red-600`} onClick={() => confirm(`删除主播「${a.name}」？`) && remove.mutate()}>
           删除主播
         </button>
+        {saveCode.error && <p className="w-full text-xs text-red-600">{saveCode.error.message}</p>}
         {remove.error && <p className="w-full text-xs text-red-600">{remove.error.message}</p>}
       </section>
 
       <PersonaEditor key={a.name} anchor={a} />
+    </div>
+  );
+}
 
+function ConfigLibrary() {
+  const queryClient = useQueryClient();
+  const configs = useQuery({ queryKey: ['allConfigs'], queryFn: api.allConfigs });
+  const [selected, setSelected] = usePersistentState<string | null>('lce.selectedConfig', null);
+  const add = useMutation({
+    mutationFn: (names: string[]) => api.createConfig({ name: nextConfigName(names) }),
+    onSuccess: (cfg) => {
+      queryClient.invalidateQueries({ queryKey: ['allConfigs'] });
+      setSelected(cfg.id);
+    },
+  });
+  const list = configs.data ?? [];
+  const config = list.find((c) => c.id === selected) ?? list[0] ?? null;
+
+  return (
+    <div className="space-y-4">
       <section className={`${card} space-y-2`}>
         <div className="flex flex-wrap items-center gap-2">
-          <h3 className="mr-auto text-sm font-medium">主播配置</h3>
-          <button
-            type="button"
-            className={secondaryBtn}
-            disabled={addConfig.isPending}
-            onClick={() => addConfig.mutate(a.configs.map((c) => c.name))}
-          >
+          <h2 className="mr-auto text-sm font-medium">回复配置</h2>
+          <button type="button" className={secondaryBtn} disabled={add.isPending} onClick={() => add.mutate(list.map((c) => c.name))}>
             新增配置
           </button>
         </div>
-        {a.configs.length === 0 ? (
-          <p className="text-sm text-neutral-500">还没有配置。一套配置决定主播用哪个模型、按什么策略回复弹幕，可以建多套做对比。</p>
-        ) : (
-          <div className="flex flex-wrap gap-1" role="tablist" aria-label="主播配置">
-            {a.configs.map((c) => (
+        <p className="text-xs text-neutral-500">一套回复配置决定用哪个模型、按什么策略回弹幕，和主播的人设分开，任何主播都能用。开播时选「主播 + 回复配置」。</p>
+        {configs.error && <p className="text-xs text-red-600">{configs.error.message}</p>}
+        {list.length > 0 && (
+          <div className="flex flex-wrap gap-1" role="tablist" aria-label="回复配置">
+            {list.map((c) => (
               <button
                 key={c.id}
                 type="button"
                 role="tab"
                 aria-selected={c.id === config?.id}
-                onClick={() => setSelectedConfig(c.id)}
+                onClick={() => setSelected(c.id)}
                 className={`rounded-full border px-3 py-1 text-sm ${
                   c.id === config?.id
                     ? 'border-neutral-900 bg-neutral-900 text-white dark:border-neutral-100 dark:bg-neutral-100 dark:text-neutral-900'
@@ -158,13 +194,13 @@ function AnchorView({ name, onDeleted }: { name: string; onDeleted: () => void }
                 }`}
               >
                 {c.name}
+                {!c.modelAvailable && <span className="ml-1 text-amber-500" title="没有可用模型">!</span>}
               </button>
             ))}
           </div>
         )}
-        {addConfig.error && <p className="text-xs text-red-600">{addConfig.error.message}</p>}
+        {add.error && <p className="text-xs text-red-600">{add.error.message}</p>}
       </section>
-
       {config && (
         <div className="grid items-start gap-4 xl:grid-cols-2">
           <ConfigEditor key={config.id} config={config} />
@@ -180,58 +216,70 @@ export function AnchorsPage() {
   const anchors = useQuery({ queryKey: ['anchors'], queryFn: api.anchors });
   const [selected, setSelected] = usePersistentState<string | null>('lce.selectedAnchor', null);
   const [newName, setNewName] = useState('');
+  const [newCode, setNewCode] = useState('');
 
   const create = useMutation({
-    mutationFn: () => api.createAnchor({ name: newName.trim() }),
+    mutationFn: () => api.createAnchor({ name: newName.trim(), code: newCode.trim() || null }),
     onSuccess: (a) => {
       queryClient.invalidateQueries({ queryKey: ['anchors'] });
       setSelected(a.name);
       setNewName('');
+      setNewCode('');
     },
   });
 
   const active = anchors.data?.find((a) => a.name === selected) ?? anchors.data?.[0] ?? null;
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-      <aside className={`${card} space-y-3 self-start`}>
-        <h2 className="text-sm font-medium">主播</h2>
-        <form
-          className="flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (newName.trim()) create.mutate();
-          }}
-        >
-          <input className={input} value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="新主播名字" aria-label="新主播名字" maxLength={100} />
-          <button type="submit" className={secondaryBtn} disabled={!newName.trim() || create.isPending}>
-            新增
-          </button>
-        </form>
-        {create.error && <p className="text-xs text-red-600">{create.error.message}</p>}
-        {anchors.isPending && <p className="text-sm text-neutral-500">加载中…</p>}
-        {anchors.error && <p className="text-sm text-red-600">{anchors.error.message}</p>}
-        {anchors.data?.length === 0 && <p className="text-sm text-neutral-500">导入聊天记录时会自动建档，也可以在这里手动新增。</p>}
-        <ul className="space-y-1">
-          {anchors.data?.map((a) => (
-            <li key={a.name}>
-              <button type="button" onClick={() => setSelected(a.name)} className={listItem(a.name === active?.name)}>
-                <span>{a.name}</span>
-                <span className="ml-2 text-xs text-neutral-500">
-                  {a.sessionCount} 会话 · {a.configCount} 配置{!a.personaPrompt.trim() && ' · 无人设'}
-                </span>
+    <div className="space-y-6">
+      <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
+        <aside className={`${card} space-y-3 self-start`}>
+          <h2 className="text-sm font-medium">主播</h2>
+          <form
+            className="space-y-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (newName.trim()) create.mutate();
+            }}
+          >
+            <input className={input} value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="新主播名字" aria-label="新主播名字" maxLength={100} />
+            <div className="flex gap-2">
+              <input className={input} value={newCode} onChange={(e) => setNewCode(e.target.value)} placeholder="编号（可选）" aria-label="新主播编号" maxLength={50} />
+              <button type="submit" className={secondaryBtn} disabled={!newName.trim() || create.isPending}>
+                新增
               </button>
-            </li>
-          ))}
-        </ul>
-      </aside>
-      <main>
-        {active ? (
-          <AnchorView key={active.name} name={active.name} onDeleted={() => setSelected(null)} />
-        ) : (
-          <div className={emptyState}>新增一个主播，或者先去「聊天记录」导入一份记录</div>
-        )}
-      </main>
+            </div>
+          </form>
+          {create.error && <p className="text-xs text-red-600">{create.error.message}</p>}
+          {anchors.isPending && <p className="text-sm text-neutral-500">加载中…</p>}
+          {anchors.error && <p className="text-sm text-red-600">{anchors.error.message}</p>}
+          {anchors.data?.length === 0 && <p className="text-sm text-neutral-500">导入聊天记录时会自动建档，也可以在这里手动新增。</p>}
+          <ul className="space-y-1">
+            {anchors.data?.map((a) => (
+              <li key={a.name}>
+                <button type="button" onClick={() => setSelected(a.name)} className={listItem(a.name === active?.name)}>
+                  <span className="flex items-center gap-1.5">
+                    {a.name}
+                    {a.code && <span className="text-xs text-neutral-500">{a.code}</span>}
+                    <SourceBadge source={a.source} />
+                  </span>
+                  <span className="text-xs text-neutral-500">
+                    {a.sessionCount} 会话{!a.personaPrompt.trim() && ' · 无人设'}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </aside>
+        <main>
+          {active ? (
+            <AnchorView key={active.name} name={active.name} onDeleted={() => setSelected(null)} />
+          ) : (
+            <div className={emptyState}>新增一个主播，或者先去「场次库」导入一份记录</div>
+          )}
+        </main>
+      </div>
+      <ConfigLibrary />
     </div>
   );
 }

@@ -17,7 +17,7 @@ import {
   updateAnchor,
   updateConfig,
 } from '../services/anchors.ts';
-import { configOf, getProvider } from '../services/providers.ts';
+import { configOf, resolvePoolModel } from '../services/providers.ts';
 import { streamChatSSE } from './sse.ts';
 
 const MAX_PERSONA_CHARS = 200_000;
@@ -63,6 +63,7 @@ const turnInputSchema = z.discriminatedUnion('kind', [
 ]);
 
 const trialSchema = z.object({
+  anchorName: nameSchema,
   input: turnInputSchema,
   history: z
     .array(z.object({ input: turnInputSchema, reply: z.string().max(20_000) }))
@@ -83,19 +84,19 @@ export function anchorRoutes(db: Db) {
     .delete('/:name', (c) => {
       deleteAnchor(db, c.req.param('name'));
       return c.body(null, 204);
-    })
-    .post('/:name/configs', zValidator('json', configSchema), (c) => c.json(createConfig(db, c.req.param('name'), c.req.valid('json')), 201));
+    });
 }
 
 function trialRequest(db: Db, id: string, body: z.infer<typeof trialSchema>) {
   const cfg = getConfig(db, id);
-  const messages = buildAnchorMessages(promptConfigOf(getAnchor(db, cfg.anchorName), cfg), body.history, body.input);
+  const messages = buildAnchorMessages(promptConfigOf(getAnchor(db, body.anchorName), cfg), body.history, body.input);
   return { cfg, messages };
 }
 
 export function anchorConfigRoutes(db: Db, fetchImpl?: FetchLike) {
   return new Hono()
     .get('/', (c) => c.json(listAllConfigs(db)))
+    .post('/', zValidator('json', configSchema), (c) => c.json(createConfig(db, c.req.valid('json')), 201))
     .patch('/:id', zValidator('json', configSchema.partial()), (c) => c.json(updateConfig(db, c.req.param('id'), c.req.valid('json'))))
     .delete('/:id', (c) => {
       deleteConfig(db, c.req.param('id'));
@@ -104,10 +105,7 @@ export function anchorConfigRoutes(db: Db, fetchImpl?: FetchLike) {
     .post('/:id/prompt', zValidator('json', trialSchema), (c) => c.json(trialRequest(db, c.req.param('id'), c.req.valid('json')).messages))
     .post('/:id/chat', zValidator('json', trialSchema), (c) => {
       const { cfg, messages } = trialRequest(db, c.req.param('id'), c.req.valid('json'));
-      if (!cfg.providerId) return c.json({ error: '这个配置还没有绑定模型服务' }, 400);
-      const provider = getProvider(db, cfg.providerId);
-      const model = cfg.model || provider.defaultModel;
-      if (!model) return c.json({ error: '没有指定模型，请在配置里填写模型或先拉取模型列表' }, 400);
+      const { provider, model } = resolvePoolModel(db, cfg.providerId, cfg.model, '这个配置的模型');
       return streamChatSSE(
         c,
         configOf(provider),

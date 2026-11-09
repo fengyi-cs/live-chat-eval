@@ -11,6 +11,15 @@ import { createRubric, deleteRubric, getRubric, listRubrics, updateRubric } from
 
 const nameSchema = z.string().trim().min(1).max(40);
 
+export const judgeSchema = z.object({
+  rubricId: z.string().min(1),
+  providerId: z.string().min(1).optional(),
+  model: z.string().trim().max(300).optional(),
+  temperature: z.number().min(0).max(2).nullable().optional(),
+  samples: z.number().int().min(1).max(3).optional(),
+  attempts: z.number().int().min(1).max(5).optional(),
+});
+
 export function rubricRoutes(db: Db) {
   return new Hono()
     .get('/', (c) => c.json(listRubrics(db)))
@@ -25,15 +34,7 @@ export function rubricRoutes(db: Db) {
     });
 }
 
-const startSchema = z.object({
-  sessionId: z.string().min(1),
-  rubricId: z.string().min(1),
-  providerId: z.string().min(1).optional(),
-  model: z.string().trim().max(300).optional(),
-  temperature: z.number().min(0).max(2).nullable().optional(),
-  samples: z.number().int().min(1).max(3).optional(),
-  attempts: z.number().int().min(1).max(5).optional(),
-});
+const startSchema = judgeSchema.extend({ sessionId: z.string().min(1) });
 
 export function evalRoutes(db: Db, manager: EvalManager) {
   return new Hono()

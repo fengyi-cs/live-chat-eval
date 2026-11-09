@@ -32,7 +32,7 @@ const anchorPath = (name: string) => `/api/anchors/${encodeURIComponent(name)}`;
 describe('anchor api', () => {
   it('creates, edits persona, counts sessions and blocks deleting an anchor that has sessions', async () => {
     const app = freshApp();
-    expect((await send(app, 'POST', '/api/anchors', { name: '阿灵', personaPrompt: '你是阿灵' })).status).toBe(201);
+    expect(await json(send(app, 'POST', '/api/anchors', { name: '阿灵', personaPrompt: '你是阿灵' }))).toMatchObject({ source: 'manual' });
     expect((await send(app, 'POST', '/api/anchors', { name: '阿灵' })).status).toBe(409);
 
     expect(await json(send(app, 'PATCH', anchorPath('阿灵'), { personaPrompt: '你是阿灵，东北姑娘', code: 'A065' }))).toMatchObject({
@@ -43,8 +43,8 @@ describe('anchor api', () => {
 
     await send(app, 'POST', '/api/imports', { content: sample, roles: sampleRoles });
     expect(await json(app.request('/api/anchors'))).toMatchObject([
-      { name: '小鹿', sessionCount: 1, configCount: 0 },
-      { name: '阿灵', sessionCount: 0, configCount: 0 },
+      { name: '小鹿', code: 'B001', source: 'import', sessionCount: 1 },
+      { name: '阿灵', code: 'A065', source: 'manual', sessionCount: 0 },
     ]);
 
     const blocked = await send(app, 'DELETE', anchorPath('小鹿'));
@@ -54,15 +54,15 @@ describe('anchor api', () => {
     expect((await send(app, 'GET', anchorPath('阿灵'))).status).toBe(404);
   });
 
-  it('creates configs with defaults, merges strategy patches and validates input', async () => {
+  it('creates anchor-independent configs with defaults, merges strategy patches and validates input', async () => {
     const app = freshApp();
     await send(app, 'POST', '/api/anchors', { name: '阿灵' });
 
-    const created = await send(app, 'POST', `${anchorPath('阿灵')}/configs`, { name: '默认', strategy: { kind: 'priority', weights: { gift: 9 } } });
+    const created = await send(app, 'POST', '/api/anchor-configs', { name: '默认', strategy: { kind: 'priority', weights: { gift: 9 } } });
     expect(created.status).toBe(201);
     const cfg = await created.json();
+    expect(cfg).not.toHaveProperty('anchorName');
     expect(cfg).toMatchObject({
-      anchorName: '阿灵',
       providerId: null,
       contextTurns: 10,
       replyRules: DEFAULT_REPLY_RULES,
@@ -73,14 +73,23 @@ describe('anchor api', () => {
     expect(patched.strategy).toMatchObject({ kind: 'priority', maxBatch: 5, weights: { gift: 9, question: 4, mention: 3 } });
     expect(patched.contextTurns).toBe(0);
 
-    expect((await send(app, 'POST', `${anchorPath('阿灵')}/configs`, { name: '默认' })).status).toBe(409);
-    expect((await send(app, 'POST', `${anchorPath('阿灵')}/configs`, { name: 'x', strategy: { kind: 'random' } })).status).toBe(400);
-    expect((await send(app, 'POST', `${anchorPath('阿灵')}/configs`, { name: 'x', providerId: 'missing' })).status).toBe(404);
-    expect((await send(app, 'POST', `${anchorPath('没有这个人')}/configs`, { name: 'x' })).status).toBe(404);
+    expect((await send(app, 'POST', '/api/anchor-configs', { name: '默认' })).status).toBe(409);
+    expect((await send(app, 'POST', '/api/anchor-configs', { name: 'x', strategy: { kind: 'random' } })).status).toBe(400);
+    expect((await send(app, 'POST', '/api/anchor-configs', { name: 'x', providerId: 'missing' })).status).toBe(404);
 
-    expect(await json(app.request(anchorPath('阿灵')))).toMatchObject({ name: '阿灵', configs: [{ id: cfg.id, name: '默认' }] });
+    const provider = await json(send(app, 'POST', '/api/providers', { name: 'P', baseUrl: 'https://llm.example/v1', enabledModels: ['m1', ' m1 ', 'm2'] }));
+    expect(provider.enabledModels).toEqual(['m1', 'm2']);
+    const outside = await send(app, 'POST', '/api/anchor-configs', { name: 'x', providerId: provider.id, model: 'not-enabled' });
+    expect(outside.status).toBe(400);
+    expect((await outside.json()).error).toContain('模型池');
+    await send(app, 'PATCH', `/api/anchor-configs/${cfg.id}`, { providerId: provider.id, model: 'm2' });
+    expect(await json(app.request('/api/anchor-configs'))).toMatchObject([{ id: cfg.id, providerName: 'P', model: 'm2', modelAvailable: true }]);
+    await send(app, 'PATCH', `/api/providers/${provider.id}`, { enabledModels: ['m1'] });
+    expect(await json(app.request('/api/anchor-configs'))).toMatchObject([{ id: cfg.id, modelAvailable: false }]);
+    expect((await send(app, 'PATCH', `/api/anchor-configs/${cfg.id}`, { contextTurns: 3 })).status).toBe(200);
+
     await send(app, 'DELETE', anchorPath('阿灵'));
-    expect((await send(app, 'PATCH', `/api/anchor-configs/${cfg.id}`, { name: 'y' })).status).toBe(404);
+    expect((await send(app, 'PATCH', `/api/anchor-configs/${cfg.id}`, { name: 'y' })).status).toBe(200);
   });
 
   it('builds the prompt from persona + config and streams a trial reply through the bound provider', async () => {
@@ -91,13 +100,14 @@ describe('anchor api', () => {
     };
     const app = freshApp(upstream);
     await send(app, 'POST', '/api/anchors', { name: '阿灵', personaPrompt: '你是阿灵。' });
-    const provider = await json(send(app, 'POST', '/api/providers', { name: 'P', baseUrl: 'https://llm.example/v1', defaultModel: 'm-default' }));
-    const cfg = await json(send(app, 'POST', `${anchorPath('阿灵')}/configs`, { name: 'c', replyRules: '说口语。', temperature: 0.9, contextTurns: 1 }));
+    const provider = await json(send(app, 'POST', '/api/providers', { name: 'P', baseUrl: 'https://llm.example/v1', enabledModels: ['m-pool'] }));
+    const cfg = await json(send(app, 'POST', '/api/anchor-configs', { name: 'c', replyRules: '说口语。', temperature: 0.9, contextTurns: 1 }));
 
-    expect((await send(app, 'POST', `/api/anchor-configs/${cfg.id}/chat`, { input: { kind: 'proactive' } })).status).toBe(400);
-    await send(app, 'PATCH', `/api/anchor-configs/${cfg.id}`, { providerId: provider.id });
+    expect((await send(app, 'POST', `/api/anchor-configs/${cfg.id}/chat`, { anchorName: '阿灵', input: { kind: 'proactive' } })).status).toBe(400);
+    await send(app, 'PATCH', `/api/anchor-configs/${cfg.id}`, { providerId: provider.id, model: 'm-pool' });
 
     const trial = {
+      anchorName: '阿灵',
       input: { kind: 'danmaku', danmaku: [{ speaker: '卡文', text: '在吗' }] },
       history: [
         { input: { kind: 'proactive' }, reply: '很早的话' },
@@ -117,9 +127,9 @@ describe('anchor api', () => {
     expect(text).toContain('event: delta\ndata: {"text":"来啦来啦"}');
     expect(text).toContain('event: done');
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.body).toMatchObject({ model: 'm-default', temperature: 0.9, messages: prompt });
+    expect(calls[0]!.body).toMatchObject({ model: 'm-pool', temperature: 0.9, messages: prompt });
 
     await send(app, 'DELETE', `/api/providers/${provider.id}`);
-    expect((await json(app.request(anchorPath('阿灵')))).configs[0].providerId).toBeNull();
+    expect((await json(app.request('/api/anchor-configs')))[0]).toMatchObject({ providerId: null, modelAvailable: false });
   });
 });

@@ -72,20 +72,21 @@ describe('provider api', () => {
     expect(JSON.stringify(provider)).not.toContain(KEY);
 
     const refreshed = await (await send(app, 'POST', `/api/providers/${provider.id}/models`)).json();
-    expect(refreshed).toMatchObject({ baseUrl: 'https://llm.example/v1', defaultModel: 'model-a', models: [{ id: 'model-a' }, { id: 'model-b' }] });
+    expect(refreshed).toMatchObject({ baseUrl: 'https://llm.example/v1', enabledModels: [], models: [{ id: 'model-a' }, { id: 'model-b' }] });
+    expect(refreshed).not.toHaveProperty('defaultModel');
 
     db.close();
     dbs.splice(dbs.indexOf(db), 1);
     const reopened = createApp(freshDb(path).db, { fetch: v1OnlyUpstream });
     const list = await (await reopened.request('/api/providers')).json();
-    expect(list).toMatchObject([{ name: '测试服务', baseUrl: 'https://llm.example/v1', defaultModel: 'model-a' }]);
+    expect(list).toMatchObject([{ name: '测试服务', baseUrl: 'https://llm.example/v1', models: [{ id: 'model-a' }, { id: 'model-b' }] }]);
     expect(JSON.stringify(list)).not.toContain(KEY);
   });
 
   it('probes without saving and reports upstream errors as 502', async () => {
     const app = createApp(freshDb().db, { fetch: v1OnlyUpstream });
     const ok = await (await send(app, 'POST', '/api/providers/probe', { baseUrl: 'https://llm.example', apiKey: KEY })).json();
-    expect(ok).toEqual({ kind: 'openai', baseUrl: 'https://llm.example/v1', models: [{ id: 'model-a' }, { id: 'model-b' }] });
+    expect(ok).toMatchObject({ kind: 'openai', baseUrl: 'https://llm.example/v1', models: [{ id: 'model-a' }, { id: 'model-b' }] });
     const bad = await send(app, 'POST', '/api/providers/probe', { baseUrl: 'https://llm.example/v1', apiKey: 'wrong' });
     expect(bad.status).toBe(502);
     expect(await bad.json()).toMatchObject({ upstreamStatus: 401 });
@@ -109,14 +110,34 @@ describe('provider api', () => {
     expect(await (await app.request('/api/providers')).json()).toMatchObject([{ name: 'B', kind: 'ollama', apiKeyMasked: null }]);
   });
 
+  it('re-detects the interface format when a gateway only serves anthropic models, and keeps the model pool', async () => {
+    const gateway: FetchLike = async (url, init) => {
+      const h = init!.headers as Record<string, string>;
+      if (url !== 'https://gw.example/v1/models' && url !== 'https://gw.example/v1/models?limit=1000') return new Response('', { status: 404 });
+      return h['anthropic-version'] ? Response.json({ data: [{ id: 'claude-x' }] }) : Response.json({ object: 'list', data: [] });
+    };
+    const app = createApp(freshDb().db, { fetch: gateway });
+    const p = await (await send(app, 'POST', '/api/providers', { name: 'GW', baseUrl: 'https://gw.example', apiKey: KEY, enabledModels: ['manual-model'] })).json();
+    expect(p).toMatchObject({ kind: 'openai', enabledModels: ['manual-model'] });
+
+    const plain = await (await send(app, 'POST', `/api/providers/${p.id}/models`)).json();
+    expect(plain).toMatchObject({ kind: 'openai', models: [], attempts: [{ kind: 'openai', count: 0 }] });
+
+    const detected = await (await send(app, 'POST', `/api/providers/${p.id}/models?detect=1`)).json();
+    expect(detected).toMatchObject({ kind: 'anthropic', baseUrl: 'https://gw.example', models: [{ id: 'claude-x' }], enabledModels: ['manual-model'] });
+    expect(detected.attempts.map((a: { kind: string; count: number }) => [a.kind, a.count])).toEqual([
+      ['openai', 0],
+      ['anthropic', 1],
+    ]);
+  });
+
   it('streams chat as SSE with timing, and reports upstream failures as an error event', async () => {
     const app = createApp(freshDb().db, { fetch: v1OnlyUpstream });
     const p = await (await send(app, 'POST', '/api/providers', { name: 'A', baseUrl: 'https://llm.example/v1', apiKey: KEY })).json();
 
     expect((await send(app, 'POST', `/api/providers/${p.id}/chat`, { messages: [{ role: 'user', content: 'x' }] })).status).toBe(400);
 
-    await send(app, 'POST', `/api/providers/${p.id}/models`);
-    const res = await send(app, 'POST', `/api/providers/${p.id}/chat`, { messages: [{ role: 'user', content: '你好' }] });
+    const res = await send(app, 'POST', `/api/providers/${p.id}/chat`, { model: 'model-a', messages: [{ role: 'user', content: '你好' }] });
     expect(res.headers.get('content-type')).toContain('text/event-stream');
     const events = parseSse(await res.text());
     expect(events[0]).toEqual({ event: 'delta', data: { text: '收到你好' } });

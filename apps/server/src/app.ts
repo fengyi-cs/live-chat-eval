@@ -24,8 +24,8 @@ export interface AppDeps {
 }
 
 export function createApp(db: Db, deps: AppDeps = {}) {
-  const sims = new SimulationManager(db, deps.fetch);
   const evalManager = new EvalManager(db, deps.fetch);
+  const sims = new SimulationManager(db, evalManager, deps.fetch);
   const api = new Hono()
     .route('/providers', providerRoutes(db, deps.fetch))
     .route('/anchors', anchorRoutes(db))

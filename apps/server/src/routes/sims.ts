@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { Db } from '../db/client.ts';
 import { sessions } from '../db/schema.ts';
 import type { RoomEvent, SimulationManager } from '../services/sims.ts';
+import { judgeSchema } from './evals.ts';
 
 const MAX_SPEED = 100;
 
@@ -15,9 +16,11 @@ const paceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('step') }),
 ]);
 
+const startBase = { anchorName: z.string().trim().min(1).max(100), configId: z.string().min(1), liveEval: judgeSchema.optional() };
+
 const startSchema = z.discriminatedUnion('mode', [
-  z.object({ mode: z.literal('live'), configId: z.string().min(1) }),
-  z.object({ mode: z.literal('script'), configId: z.string().min(1), scriptId: z.string().min(1), pace: paceSchema }),
+  z.object({ mode: z.literal('live'), ...startBase }),
+  z.object({ mode: z.literal('script'), ...startBase, scriptId: z.string().min(1), pace: paceSchema }),
 ]);
 
 const danmakuSchema = z.object({ speaker: z.string().trim().min(1).max(100), text: z.string().trim().min(1).max(2000) });

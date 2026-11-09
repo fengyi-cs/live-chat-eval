@@ -8,11 +8,11 @@ import {
   type PriorityWeights,
   type ReplyStrategy,
 } from '@lce/core';
-import { and, asc, count, eq } from 'drizzle-orm';
+import { asc, count, eq } from 'drizzle-orm';
 import type { Db } from '../db/client.ts';
 import { anchorConfigs, anchors, providers, sessions } from '../db/schema.ts';
 import { ConflictError, NotFoundError } from './errors.ts';
-import { getProvider } from './providers.ts';
+import { getProvider, resolvePoolModel } from './providers.ts';
 
 type AnchorRow = typeof anchors.$inferSelect;
 type ConfigRow = typeof anchorConfigs.$inferSelect;
@@ -56,21 +56,19 @@ export function getAnchor(db: Db, name: string): AnchorRow {
 }
 
 export function listAnchors(db: Db) {
-  const tally = (rows: { name: string; n: number }[]) => new Map(rows.map((r) => [r.name, r.n]));
-  const sessionCounts = tally(db.select({ name: sessions.anchorName, n: count() }).from(sessions).groupBy(sessions.anchorName).all());
-  const configCounts = tally(db.select({ name: anchorConfigs.anchorName, n: count() }).from(anchorConfigs).groupBy(anchorConfigs.anchorName).all());
+  const sessionCounts = new Map(
+    db.select({ name: sessions.anchorName, n: count() }).from(sessions).groupBy(sessions.anchorName).all().map((r) => [r.name, r.n]),
+  );
   return db
     .select()
     .from(anchors)
     .orderBy(asc(anchors.name))
     .all()
-    .map((a) => ({ ...a, sessionCount: sessionCounts.get(a.name) ?? 0, configCount: configCounts.get(a.name) ?? 0 }));
+    .map((a) => ({ ...a, sessionCount: sessionCounts.get(a.name) ?? 0 }));
 }
 
 export function getAnchorDetail(db: Db, name: string) {
-  const anchor = getAnchor(db, name);
-  const configs = db.select().from(anchorConfigs).where(eq(anchorConfigs.anchorName, name)).orderBy(asc(anchorConfigs.createdAt)).all();
-  return { ...anchor, sessionCount: sessionCountOf(db, name), configs };
+  return { ...getAnchor(db, name), sessionCount: sessionCountOf(db, name) };
 }
 
 export function createAnchor(db: Db, input: AnchorInput) {
@@ -79,7 +77,7 @@ export function createAnchor(db: Db, input: AnchorInput) {
   }
   return db
     .insert(anchors)
-    .values({ name: input.name, code: input.code ?? null, personaPrompt: input.personaPrompt ?? '' })
+    .values({ name: input.name, code: input.code ?? null, personaPrompt: input.personaPrompt ?? '', source: 'manual' })
     .returning()
     .get();
 }
@@ -107,24 +105,25 @@ export function getConfig(db: Db, id: string): ConfigRow {
   return row;
 }
 
-function assertConfigNameFree(db: Db, anchorName: string, name: string, selfId?: string) {
-  const other = db
-    .select({ id: anchorConfigs.id })
-    .from(anchorConfigs)
-    .where(and(eq(anchorConfigs.anchorName, anchorName), eq(anchorConfigs.name, name)))
-    .get();
+function assertConfigNameFree(db: Db, name: string, selfId?: string) {
+  const other = db.select({ id: anchorConfigs.id }).from(anchorConfigs).where(eq(anchorConfigs.name, name)).get();
   if (other && other.id !== selfId) throw new ConflictError(`配置名称「${name}」已存在`);
 }
 
-export function createConfig(db: Db, anchorName: string, input: ConfigInput) {
-  getAnchor(db, anchorName);
-  assertConfigNameFree(db, anchorName, input.name);
-  if (input.providerId) getProvider(db, input.providerId);
+/** 选了服务商和模型时，模型必须在模型池里；只选服务商是未完成的中间状态 */
+function checkModel(db: Db, providerId: string | null | undefined, model: string | null | undefined) {
+  if (!providerId) return;
+  if (model?.trim()) resolvePoolModel(db, providerId, model);
+  else getProvider(db, providerId);
+}
+
+export function createConfig(db: Db, input: ConfigInput) {
+  assertConfigNameFree(db, input.name);
+  checkModel(db, input.providerId, input.model);
   return db
     .insert(anchorConfigs)
     .values({
       id: randomUUID(),
-      anchorName,
       name: input.name,
       providerId: input.providerId ?? null,
       model: input.model ?? null,
@@ -141,8 +140,8 @@ export function createConfig(db: Db, anchorName: string, input: ConfigInput) {
 
 export function updateConfig(db: Db, id: string, input: Partial<ConfigInput>) {
   const current = getConfig(db, id);
-  if (input.name !== undefined) assertConfigNameFree(db, current.anchorName, input.name, id);
-  if (input.providerId) getProvider(db, input.providerId);
+  if (input.name !== undefined) assertConfigNameFree(db, input.name, id);
+  if (input.providerId !== undefined || input.model !== undefined) checkModel(db, keep(input.providerId, current.providerId), keep(input.model, current.model));
   return db
     .update(anchorConfigs)
     .set({
@@ -168,12 +167,17 @@ export function deleteConfig(db: Db, id: string) {
 
 export function listAllConfigs(db: Db) {
   return db
-    .select({ config: anchorConfigs, providerName: providers.name, providerDefaultModel: providers.defaultModel })
+    .select({ config: anchorConfigs, providerName: providers.name, enabledModels: providers.enabledModels })
     .from(anchorConfigs)
     .leftJoin(providers, eq(providers.id, anchorConfigs.providerId))
-    .orderBy(asc(anchorConfigs.anchorName), asc(anchorConfigs.createdAt))
+    .orderBy(asc(anchorConfigs.createdAt))
     .all()
-    .map(({ config, providerName, providerDefaultModel }) => ({ ...config, providerName, providerDefaultModel }));
+    .map(({ config, providerName, enabledModels }) => ({
+      ...config,
+      providerName,
+      /** 模型在模型池里，可以开播 */
+      modelAvailable: Boolean(config.model && enabledModels?.includes(config.model)),
+    }));
 }
 
 export function promptConfigOf(anchor: AnchorRow, cfg: ConfigRow): AnchorPromptConfig {

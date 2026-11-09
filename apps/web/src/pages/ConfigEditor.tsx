@@ -7,9 +7,10 @@ import {
   type ReplyStrategy,
   type StrategyKind,
 } from '@lce/core';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { api, type AnchorConfig } from '../api.ts';
+import { ModelPicker } from '../components/ModelPicker.tsx';
 import { card, input, primaryBtn, secondaryBtn } from '../ui.ts';
 
 const WEIGHT_FIELDS: readonly [keyof PriorityWeights, string][] = [
@@ -78,7 +79,6 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 export function ConfigEditor({ config }: { config: AnchorConfig }) {
   const queryClient = useQueryClient();
-  const providers = useQuery({ queryKey: ['providers'], queryFn: api.providers });
   const [draft, setDraft] = useState(config);
 
   const set = (patch: Partial<AnchorConfig>) => setDraft((d) => ({ ...d, ...patch }));
@@ -87,17 +87,14 @@ export function ConfigEditor({ config }: { config: AnchorConfig }) {
     setDraft((d) => ({ ...d, strategy: { ...d.strategy, weights: { ...d.strategy.weights, [key]: v } } }));
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(config);
-  const refreshAnchor = () => {
-    queryClient.invalidateQueries({ queryKey: ['anchor', config.anchorName] });
-    queryClient.invalidateQueries({ queryKey: ['anchors'] });
-  };
+  const refreshConfigs = () => queryClient.invalidateQueries({ queryKey: ['allConfigs'] });
 
   const save = useMutation({
     mutationFn: () =>
       api.updateConfig(config.id, {
         name: draft.name.trim(),
         providerId: draft.providerId,
-        model: draft.model?.trim() || null,
+        model: draft.model,
         temperature: draft.temperature,
         maxTokens: draft.maxTokens,
         contextTurns: draft.contextTurns,
@@ -107,12 +104,11 @@ export function ConfigEditor({ config }: { config: AnchorConfig }) {
       }),
     onSuccess: (saved) => {
       setDraft(saved);
-      refreshAnchor();
+      refreshConfigs();
     },
   });
-  const remove = useMutation({ mutationFn: () => api.deleteConfig(config.id), onSuccess: refreshAnchor });
+  const remove = useMutation({ mutationFn: () => api.deleteConfig(config.id), onSuccess: refreshConfigs });
 
-  const provider = providers.data?.find((p) => p.id === draft.providerId);
   const s = draft.strategy;
 
   return (
@@ -124,12 +120,12 @@ export function ConfigEditor({ config }: { config: AnchorConfig }) {
       }}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="mr-auto text-sm font-medium">编辑配置</h3>
+        <h3 className="mr-auto text-sm font-medium">编辑回复配置</h3>
         {dirty && <span className="text-xs text-amber-600">有未保存的修改</span>}
         <button type="submit" className={primaryBtn} disabled={!dirty || !draft.name.trim() || save.isPending}>
           {save.isPending ? '保存中…' : '保存配置'}
         </button>
-        <button type="button" className={`${secondaryBtn} text-red-600`} onClick={() => confirm(`删除配置「${config.name}」？`) && remove.mutate()}>
+        <button type="button" className={`${secondaryBtn} text-red-600`} onClick={() => confirm(`删除回复配置「${config.name}」？`) && remove.mutate()}>
           删除
         </button>
       </div>
@@ -141,32 +137,10 @@ export function ConfigEditor({ config }: { config: AnchorConfig }) {
           <Field label="配置名称">
             <input className={input} value={draft.name} onChange={(e) => set({ name: e.target.value })} maxLength={100} required />
           </Field>
-          <Field label="模型服务" hint={providers.data?.length === 0 ? '还没有服务商，先去「模型服务」新增' : undefined}>
-            <select className={input} value={draft.providerId ?? ''} onChange={(e) => set({ providerId: e.target.value || null })}>
-              <option value="">未绑定</option>
-              {providers.data?.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="模型" hint={provider?.defaultModel ? `留空使用服务商默认模型 ${provider.defaultModel}` : undefined}>
-            <input
-              className={input}
-              list={`cfg-models-${config.id}`}
-              value={draft.model ?? ''}
-              onChange={(e) => set({ model: e.target.value })}
-              placeholder="模型 ID"
-            />
-            <datalist id={`cfg-models-${config.id}`}>
-              {provider?.models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </datalist>
-          </Field>
+          <div className="space-y-1">
+            <span className="text-xs text-neutral-500">模型</span>
+            <ModelPicker value={{ providerId: draft.providerId, model: draft.model }} onChange={(v) => set(v)} />
+          </div>
           <Field label="温度" hint="0 ~ 2，留空使用模型默认值">
             <NumberInput value={draft.temperature} onChange={(v) => set({ temperature: v })} min={0} max={2} step={0.1} nullable placeholder="默认" />
           </Field>

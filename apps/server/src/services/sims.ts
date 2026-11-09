@@ -18,10 +18,17 @@ import type { Db } from '../db/client.ts';
 import { messages, sessions, type SessionSnapshot, type SessionStatus } from '../db/schema.ts';
 import { getAnchor, getConfig, promptConfigOf } from './anchors.ts';
 import { BadRequestError, NotFoundError } from './errors.ts';
-import { configOf, getProvider } from './providers.ts';
+import type { EvalManager, JudgeInput, PreparedLiveEval } from './evals.ts';
+import { configOf, resolvePoolModel } from './providers.ts';
 import { getScript } from './scripts.ts';
 
-export type StartInput = { configId: string; mode: 'live' } | { configId: string; mode: 'script'; scriptId: string; pace: Pace };
+interface StartBase {
+  anchorName: string;
+  configId: string;
+  liveEval?: JudgeInput;
+}
+
+export type StartInput = (StartBase & { mode: 'live' }) | (StartBase & { mode: 'script'; scriptId: string; pace: Pace });
 
 export interface RunInfo {
   sessionId: string;
@@ -32,6 +39,8 @@ export interface RunInfo {
   scriptDurationMs: number | null;
   pace: Pace | null;
   startedAt: string;
+  /** 开了实时评估时的评估 ID，订阅 /api/evals/:id/events 拿逐条分数 */
+  evalId: string | null;
 }
 
 export type RoomEvent = SimEvent | { type: 'hello'; info: RunInfo } | { type: 'pace'; pace: Pace };
@@ -66,6 +75,7 @@ export class SimulationManager {
 
   constructor(
     private readonly db: Db,
+    private readonly evalManager: EvalManager,
     private readonly fetchImpl?: FetchLike,
   ) {
     db.update(sessions).set({ status: 'stopped', error: INTERRUPTED }).where(eq(sessions.status, 'running')).run();
@@ -81,11 +91,9 @@ export class SimulationManager {
 
   start(input: StartInput): RunInfo {
     const cfg = getConfig(this.db, input.configId);
-    const anchor = getAnchor(this.db, cfg.anchorName);
-    if (!cfg.providerId) throw new BadRequestError('这个配置还没有绑定模型服务');
-    const provider = getProvider(this.db, cfg.providerId);
-    const model = cfg.model || provider.defaultModel;
-    if (!model) throw new BadRequestError('没有指定模型，请在配置里填写模型或先拉取模型列表');
+    const anchor = getAnchor(this.db, input.anchorName);
+    const { provider, model } = resolvePoolModel(this.db, cfg.providerId, cfg.model, '这个配置的模型');
+    const liveEval = input.liveEval ? this.evalManager.prepareLive(input.liveEval) : null;
 
     let script: ReturnType<typeof parseScript>['events'] | undefined;
     let scriptRow: ReturnType<typeof getScript> | null = null;
@@ -136,6 +144,7 @@ export class SimulationManager {
       })
       .run();
 
+    const evalId = liveEval ? this.startLiveEval(sessionId, liveEval) : null;
     const info: RunInfo = {
       sessionId,
       mode: input.mode,
@@ -145,6 +154,7 @@ export class SimulationManager {
       scriptDurationMs: script ? (script.at(-1)?.at ?? 0) : null,
       pace,
       startedAt: localIso(startedWall),
+      evalId,
     };
 
     let run!: Run;
@@ -223,6 +233,7 @@ export class SimulationManager {
 
   private handle(run: Run, ev: SimEvent) {
     if (ev.type === 'danmaku' || ev.type === 'reply') this.persist(run, ev.message);
+    if (ev.type === 'reply') this.toLiveEval(run, (id) => this.evalManager.addTurn(id, ev.message.seq, Boolean(ev.message.proactive)));
     if (ev.type === 'thinking') run.partial = '';
     else if (ev.type === 'delta') run.partial = (run.partial ?? '') + ev.text;
     else if (ev.type === 'reply') run.partial = null;
@@ -235,6 +246,7 @@ export class SimulationManager {
           .set({ status: END_STATUS[ev.reason], error: ev.error, unanswered: ev.unanswered, endedAt: localIso(run.startedWall + ev.at) })
           .where(eq(sessions.id, run.info.sessionId))
           .run();
+        this.toLiveEval(run, (id) => this.evalManager.finishLive(id));
       } finally {
         this.broadcast(run, ev);
         run.listeners.clear();
@@ -244,6 +256,25 @@ export class SimulationManager {
     if (ev.type === 'clock' || ev.type === 'waiting') run.lastClock = ev;
     else if (ev.type !== 'delta') run.log.push(ev);
     this.broadcast(run, ev);
+  }
+
+  private startLiveEval(sessionId: string, judge: PreparedLiveEval) {
+    try {
+      return this.evalManager.startLive(sessionId, judge);
+    } catch (err) {
+      this.db.delete(sessions).where(eq(sessions.id, sessionId)).run();
+      throw err;
+    }
+  }
+
+  /** 实时评估出错不能影响直播本身 */
+  private toLiveEval(run: Run, fn: (evalId: string) => void) {
+    if (!run.info.evalId) return;
+    try {
+      fn(run.info.evalId);
+    } catch (err) {
+      console.error(`live eval ${run.info.evalId} failed`, err);
+    }
   }
 
   private persist(run: Run, m: SimMessage) {

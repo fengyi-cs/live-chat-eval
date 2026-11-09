@@ -5,6 +5,7 @@ import {
   detectProvider,
   listModels,
   ProviderError,
+  probeModels,
   resolveModels,
   type ChatChunk,
   type FetchLike,
@@ -118,6 +119,37 @@ describe('openai adapter', () => {
     const f = fakeFetch(() => new Response('', { status: 404 }));
     await expect(resolveModels(config, { fetch: f.fn })).rejects.toMatchObject({ status: 404 });
     expect(f.calls).toHaveLength(1);
+  });
+
+  it('resolveModels does not retry auth failures', async () => {
+    const f = fakeFetch(() => new Response('', { status: 401 }));
+    await expect(resolveModels({ ...config, baseUrl: 'https://llm.local' }, { fetch: f.fn })).rejects.toMatchObject({ status: 401 });
+    expect(f.calls).toHaveLength(1);
+  });
+});
+
+describe('probeModels', () => {
+  it('falls through to the anthropic format when a gateway returns an empty openai list', async () => {
+    const f = fakeFetch((url, init) => {
+      const h = init!.headers as Record<string, string>;
+      if (url === 'https://gw.example/v1/models?limit=1000' && h['anthropic-version']) return jsonRes({ data: [{ id: 'claude-x', display_name: 'Claude X' }] });
+      if (url === 'https://gw.example/v1/models') return jsonRes({ object: 'list', data: [] });
+      return new Response('', { status: 404 });
+    });
+    const res = await probeModels('https://gw.example', 'k', { fetch: f.fn });
+    expect(res).toMatchObject({ kind: 'anthropic', baseUrl: 'https://gw.example', models: [{ id: 'claude-x', name: 'Claude X' }] });
+    expect(res.attempts.map((a) => [a.kind, a.count])).toEqual([
+      ['openai', 0],
+      ['anthropic', 1],
+    ]);
+  });
+
+  it('returns the first reachable format when every list is empty, and throws when all fail', async () => {
+    const empty = fakeFetch((url) => (url.endsWith('/v1/models') ? jsonRes({ data: [] }) : jsonRes({ models: [] })));
+    expect(await probeModels('https://gw.example/v1', 'k', { fetch: empty.fn })).toMatchObject({ kind: 'openai', baseUrl: 'https://gw.example/v1', models: [] });
+
+    const denied = fakeFetch(() => new Response('bad key', { status: 401 }));
+    await expect(probeModels('https://gw.example', 'k', { fetch: denied.fn })).rejects.toMatchObject({ status: 401 });
   });
 });
 

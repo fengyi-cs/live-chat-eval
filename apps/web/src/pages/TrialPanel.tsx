@@ -1,6 +1,7 @@
 import type { ChatMessage, TurnInput } from '@lce/core';
+import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { api, type AnchorConfig, type ChatDone } from '../api.ts';
+import { api, type AnchorConfigSummary, type ChatDone } from '../api.ts';
 import { card, input, primaryBtn, secondaryBtn } from '../ui.ts';
 import { usePersistentState } from '../usePersistentState.ts';
 
@@ -25,8 +26,11 @@ function parseDanmakuLines(text: string) {
     });
 }
 
-export function TrialPanel({ config }: { config: AnchorConfig }) {
-  const [log, setLog] = usePersistentState<TrialTurn[]>(`lce.trial.${config.id}`, []);
+export function TrialPanel({ config }: { config: AnchorConfigSummary }) {
+  const anchors = useQuery({ queryKey: ['anchors'], queryFn: api.anchors });
+  const [anchorPick, setAnchorPick] = usePersistentState<string | null>('lce.trial.anchor', null);
+  const anchorName = anchors.data?.find((a) => a.name === anchorPick)?.name ?? anchors.data?.[0]?.name ?? null;
+  const [log, setLog] = usePersistentState<TrialTurn[]>(`lce.trial.${config.id}.${anchorName ?? ''}`, []);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<ChatMessage[] | null>(null);
@@ -39,8 +43,8 @@ export function TrialPanel({ config }: { config: AnchorConfig }) {
   const history = () => log.filter((t) => !t.error && t.reply).map(({ input, reply }) => ({ input, reply }));
 
   const run = async (turn: TurnInput) => {
-    if (busy) return;
-    const body = { input: turn, history: history() };
+    if (busy || !anchorName) return;
+    const body = { anchorName, input: turn, history: history() };
     setLog((l) => [...l, { input: turn, reply: '' }]);
     if (turn.kind === 'danmaku') setDraft('');
     setPreview(null);
@@ -64,9 +68,10 @@ export function TrialPanel({ config }: { config: AnchorConfig }) {
 
   const showPrompt = async () => {
     setPreviewError(null);
+    if (!anchorName) return;
     try {
       const turn: TurnInput = danmaku.length ? { kind: 'danmaku', danmaku: danmaku.slice(0, MAX_BATCH) } : { kind: 'proactive' };
-      setPreview(await api.trialPrompt(config.id, { input: turn, history: history() }));
+      setPreview(await api.trialPrompt(config.id, { anchorName, input: turn, history: history() }));
     } catch (err) {
       setPreviewError((err as Error).message);
     }
@@ -76,6 +81,19 @@ export function TrialPanel({ config }: { config: AnchorConfig }) {
     <section className={`${card} space-y-3`}>
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="mr-auto text-sm font-medium">试播</h3>
+        <select
+          aria-label="试播用的主播"
+          className="rounded border border-neutral-300 bg-transparent px-2 py-1.5 text-sm dark:border-neutral-700"
+          value={anchorName ?? ''}
+          onChange={(e) => setAnchorPick(e.target.value)}
+        >
+          {anchors.data?.length === 0 && <option value="">还没有主播</option>}
+          {anchors.data?.map((a) => (
+            <option key={a.name} value={a.name}>
+              {a.name}
+            </option>
+          ))}
+        </select>
         <button type="button" className={secondaryBtn} onClick={() => void showPrompt()} disabled={busy}>
           查看提示词
         </button>
@@ -92,8 +110,8 @@ export function TrialPanel({ config }: { config: AnchorConfig }) {
         </button>
       </div>
       <p className="text-xs text-neutral-500">
-        用已保存的人设和配置，手动发弹幕看主播怎么回。
-        {!config.providerId && <span className="text-amber-600"> 这个配置还没有绑定模型服务。</span>}
+        用所选主播的人设和这套回复配置（已保存的），手动发弹幕看主播怎么回。
+        {!config.modelAvailable && <span className="text-amber-600"> 这套配置还没有选模型，或模型已不在模型池里。</span>}
       </p>
 
       {preview && (

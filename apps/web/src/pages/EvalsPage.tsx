@@ -1,7 +1,8 @@
 import { RULE_KEYS, RULE_LABELS, turnLlmScore } from '@lce/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { api, type EvalDetail, type EvalItemView } from '../api.ts';
+import { api, type EvalDetail, type EvalEvent, type EvalItemView } from '../api.ts';
+import { ModelPicker } from '../components/ModelPicker.tsx';
 import { card, emptyState, input, listItem, primaryBtn, secondaryBtn } from '../ui.ts';
 import { usePersistentState } from '../usePersistentState.ts';
 
@@ -10,9 +11,19 @@ const fmt = (n: number | null | undefined) => (n === null || n === undefined ? '
 const tone = (n: number | null) => (n === null ? 'text-neutral-400' : n >= 80 ? 'text-emerald-600' : n >= 60 ? 'text-amber-600' : 'text-red-600');
 
 function Bar({ value }: { value: number | null }) {
+  const pct = value ?? 0;
+  const color =
+    pct >= 80
+      ? 'bg-emerald-500'
+      : pct >= 60
+        ? 'bg-amber-400'
+        : 'bg-red-400';
   return (
-    <div className="h-1.5 w-full rounded bg-neutral-100 dark:bg-neutral-800">
-      <div className="h-1.5 rounded bg-sky-500" style={{ width: `${value ?? 0}%` }} />
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
+      <div
+        className={`h-1.5 rounded-full transition-all duration-500 ${color}`}
+        style={{ width: `${pct}%` }}
+      />
     </div>
   );
 }
@@ -21,20 +32,17 @@ function StartPanel({ onStarted }: { onStarted: (id: string) => void }) {
   const qc = useQueryClient();
   const sessions = useQuery({ queryKey: ['sessions'], queryFn: api.sessions });
   const rubrics = useQuery({ queryKey: ['rubrics'], queryFn: api.rubrics });
-  const providers = useQuery({ queryKey: ['providers'], queryFn: api.providers });
   const [sessionId, setSessionId] = usePersistentState<string | null>('lce.eval.session', null);
   const [rubricId, setRubricId] = usePersistentState<string | null>('lce.eval.rubric', null);
-  const [providerId, setProviderId] = usePersistentState<string | null>('lce.eval.provider', null);
-  const [model, setModel] = usePersistentState('lce.eval.model', '');
+  const [judgeChoice, setJudgeChoice] = usePersistentState<{ providerId: string | null; model: string | null }>('lce.eval.judge', { providerId: null, model: null });
   const [temperature, setTemperature] = usePersistentState('lce.eval.temperature', 0);
   const [samples, setSamples] = usePersistentState('lce.eval.samples', 1);
 
   const done = sessions.data?.filter((s) => s.status !== 'running') ?? [];
   const session = done.find((s) => s.id === sessionId) ?? done[0];
   const rubric = rubrics.data?.find((r) => r.id === rubricId) ?? rubrics.data?.[0];
-  const provider = providers.data?.find((p) => p.id === providerId) ?? providers.data?.[0];
   const start = useMutation({
-    mutationFn: () => api.startEval({ sessionId: session!.id, rubricId: rubric!.id, providerId: provider?.id, model: model.trim() || undefined, temperature, samples }),
+    mutationFn: () => api.startEval({ sessionId: session!.id, rubricId: rubric!.id, providerId: judgeChoice.providerId ?? undefined, model: judgeChoice.model ?? undefined, temperature, samples }),
     onSuccess: (ev) => {
       qc.invalidateQueries({ queryKey: ['evals'] });
       onStarted(ev.id);
@@ -66,24 +74,11 @@ function StartPanel({ onStarted }: { onStarted: (id: string) => void }) {
           ))}
         </select>
       </label>
+      <label className="block space-y-1">
+        <span className="text-xs text-neutral-500">裁判模型</span>
+        <ModelPicker value={judgeChoice} onChange={setJudgeChoice} placeholder="选裁判模型（只需 LLM 维度时）" />
+      </label>
       <div className="grid grid-cols-2 gap-2">
-        <label className="block space-y-1">
-          <span className="text-xs text-neutral-500">裁判模型服务</span>
-          <select className={input} value={provider?.id ?? ''} onChange={(e) => setProviderId(e.target.value)}>
-            {providers.data?.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block space-y-1">
-          <span className="text-xs text-neutral-500">模型</span>
-          <input className={input} list="eval-models" value={model} placeholder={provider?.defaultModel ?? ''} onChange={(e) => setModel(e.target.value)} />
-          <datalist id="eval-models">
-            {provider?.models.map((m) => <option key={m.id} value={m.id} />)}
-          </datalist>
-        </label>
         <label className="block space-y-1">
           <span className="text-xs text-neutral-500">温度</span>
           <input type="number" className={input} min={0} max={2} step={0.1} value={temperature} onChange={(e) => setTemperature(Number(e.target.value) || 0)} />
@@ -108,12 +103,20 @@ function TurnRow({ it, detail }: { it: EvalItemView; detail: EvalDetail }) {
   const llm = turnLlmScore(detail.rubric, it);
   const dims = detail.rubric.dimensions.filter((d) => it.scores?.[d.key]);
   return (
-    <li className="space-y-1 rounded border border-neutral-200 p-2 text-sm dark:border-neutral-800">
+    <li className="space-y-1.5 rounded-lg border border-neutral-200 p-3 text-sm transition-colors dark:border-neutral-800">
       <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-500">
-        <span>{it.kind === 'session' ? '整场' : `#${it.seq}${it.proactive ? ' · 主动发言' : ''}`}</span>
-        {it.status === 'done' && <span className={`font-medium ${tone(llm)}`}>LLM {fmt(llm)}</span>}
-        {it.status === 'pending' && <span>等待打分</span>}
-        {it.status === 'skipped' && <span>不需要 LLM 评</span>}
+        <span className="rounded-full bg-neutral-100 px-2 py-0.5 font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">{it.kind === 'session' ? '整场' : `#${it.seq}${it.proactive ? ' · 主动' : ''}`}</span>
+        {it.status === 'done' && (
+          <span className={`rounded-full px-2 py-0.5 font-medium tabular-nums ${
+            (llm ?? 0) >= 80
+              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300'
+              : (llm ?? 0) >= 60
+                ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300'
+                : 'bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-300'
+          }`}>LLM {fmt(llm)}</span>
+        )}
+        {it.status === 'pending' && <span className="text-neutral-400">等待打分…</span>}
+        {it.status === 'skipped' && <span className="text-neutral-400">不需要 LLM 评</span>}
         {it.status === 'error' && <span className="text-red-600">打分失败：{it.error}</span>}
         {rules?.latency && <span>延迟 {((rules.latency.value ?? 0) / 1000).toFixed(1)}s</span>}
         {rules?.aiPhrases?.hits?.length ? <span className="text-amber-600">AI 腔：{rules.aiPhrases.hits.join('、')}</span> : null}
@@ -141,10 +144,15 @@ function Report({ id, onDeleted }: { id: string; onDeleted: () => void }) {
 
   useEffect(() => {
     if (!running) return;
-    return api.subscribeEval(id, (ev: any) => {
+    return api.subscribeEval(id, (ev) => {
       if (ev.type === 'hello') setLive(ev.eval);
       else if (ev.type === 'item')
-        setLive((d) => (d ? { ...d, summary: ev.summary, calls: ev.calls, items: d.items.map((x) => (x.id === ev.item.id ? ev.item : x)) } : d));
+        setLive((d) => {
+          if (!d) return d;
+          const existing = d.items.findIndex((x) => x.id === ev.item.id);
+          const items = existing >= 0 ? d.items.map((x) => (x.id === ev.item.id ? ev.item : x)) : [...d.items, ev.item];
+          return { ...d, summary: ev.summary, calls: ev.calls, items };
+        });
       else {
         setLive(null);
         qc.invalidateQueries({ queryKey: ['eval', id] });
@@ -199,9 +207,12 @@ function Report({ id, onDeleted }: { id: string; onDeleted: () => void }) {
               ['LLM 裁判分', s.llmScore],
             ] as const
           ).map(([label, v]) => (
-            <div key={label} className="rounded bg-neutral-50 p-3 dark:bg-neutral-800">
-              <div className={`text-2xl font-semibold ${tone(v)}`}>{fmt(v)}</div>
-              <div className="text-xs text-neutral-500">{label}</div>
+            <div key={label} className="overflow-hidden rounded-lg bg-neutral-50 dark:bg-neutral-800/60">
+              <div className={`h-1 ${(v ?? 0) >= 80 ? 'bg-emerald-400' : (v ?? 0) >= 60 ? 'bg-amber-400' : v === null ? 'bg-neutral-200 dark:bg-neutral-700' : 'bg-red-400'}`} />
+              <div className="p-3">
+                <div className={`text-2xl font-bold tabular-nums ${tone(v)}`}>{fmt(v)}</div>
+                <div className="mt-0.5 text-xs text-neutral-500">{label}</div>
+              </div>
             </div>
           ))}
         </div>
@@ -267,7 +278,15 @@ export function EvalsPage() {
             {list.data?.map((e) => (
               <li key={e.id}>
                 <button type="button" className={listItem(e.id === active?.id)} onClick={() => setSelected(e.id)}>
-                  <span className={`mr-2 font-medium ${tone(e.composite)}`}>{fmt(e.composite)}</span>
+                  <span className={`mr-2 rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${
+                    (e.composite ?? 0) >= 80
+                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300'
+                      : (e.composite ?? 0) >= 60
+                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300'
+                        : e.composite !== null
+                          ? 'bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-300'
+                          : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800'
+                  }`}>{fmt(e.composite)}</span>
                   {e.anchorName}
                   <span className="ml-2 text-xs text-neutral-500">
                     {e.rubricName} · {STATUS[e.status]}

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api.ts';
 import { formatLatency, SOURCE_LABELS, STATUS_LABELS, STATUS_TONE } from '../labels.ts';
+import { card } from '../ui.ts';
 import { MessageBubble } from './MessageBubble.tsx';
 
 export function SessionView({ id, onDeleted }: { id: string; onDeleted: () => void }) {
@@ -31,7 +32,7 @@ export function SessionView({ id, onDeleted }: { id: string; onDeleted: () => vo
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
+      <div className={`${card} flex flex-wrap items-start justify-between gap-2`}>
         <div>
           <h2 className="font-medium">
             {s.anchorName}
@@ -65,7 +66,7 @@ export function SessionView({ id, onDeleted }: { id: string; onDeleted: () => vo
           删除
         </button>
       </div>
-      <ul className="space-y-2">
+      <ul className="space-y-3">
         {s.messages.map((m) => (
           <MessageBubble key={m.id} m={{ ...m, time: m.time.slice(11) }} quote={quote} unanswered={unanswered.has(m.seq)} />
         ))}

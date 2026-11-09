@@ -59,7 +59,7 @@ export function commitImport(db: Db, content: string, roles: RoleMap, replace: b
   db.transaction((tx) => {
     if (existing) tx.delete(sessions).where(eq(sessions.id, existing.id)).run();
     const code = anchorName === parsed.meta.anchorName ? (parsed.meta.anchorCode ?? null) : null;
-    tx.insert(anchors).values({ name: anchorName, code }).onConflictDoNothing().run();
+    tx.insert(anchors).values({ name: anchorName, code, source: 'import' }).onConflictDoNothing().run();
     for (const [speaker, role] of Object.entries(roles)) {
       if (role === 'anchor') continue;
       tx.insert(speakerRoles).values({ speaker, role }).onConflictDoUpdate({ target: speakerRoles.speaker, set: { role } }).run();

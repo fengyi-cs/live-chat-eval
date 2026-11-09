@@ -8,6 +8,7 @@ import type {
   JudgeScores,
   ModelInfo,
   Pace,
+  ProbeAttempt,
   ProviderKind,
   ReplyStrategy,
   Rubric,
@@ -77,17 +78,19 @@ export interface SessionDetail extends SessionSummary {
   messages: StoredMessage[];
 }
 
+export type AnchorSource = 'import' | 'manual';
+
 export interface Anchor {
   name: string;
   code: string | null;
+  source: AnchorSource;
   personaPrompt: string;
   sessionCount: number;
-  configCount: number;
 }
 
+/** 回复配置：与主播解耦，开播时与任意主播组合 */
 export interface AnchorConfig {
   id: string;
-  anchorName: string;
   name: string;
   providerId: string | null;
   model: string | null;
@@ -99,20 +102,20 @@ export interface AnchorConfig {
   strategy: ReplyStrategy;
 }
 
-export interface AnchorDetail extends Omit<Anchor, 'configCount'> {
-  configs: AnchorConfig[];
-}
+export type AnchorDetail = Anchor;
 
-export type AnchorConfigInput = Partial<Omit<AnchorConfig, 'id' | 'anchorName' | 'strategy'>> & { strategy?: Partial<ReplyStrategy> };
+export type AnchorConfigInput = Partial<Omit<AnchorConfig, 'id' | 'strategy'>> & { strategy?: Partial<ReplyStrategy> };
 
 export interface TrialBody {
+  anchorName: string;
   input: TurnInput;
   history: AnchorExchange[];
 }
 
 export interface AnchorConfigSummary extends AnchorConfig {
   providerName: string | null;
-  providerDefaultModel: string | null;
+  /** 模型在模型池里，可以开播 */
+  modelAvailable: boolean;
 }
 
 export interface Script {
@@ -128,7 +131,21 @@ export interface Script {
 
 export type ScriptInput = Partial<Pick<Script, 'name' | 'content' | 'defaultGapSec'>>;
 
-export type StartSim = { mode: 'live'; configId: string } | { mode: 'script'; configId: string; scriptId: string; pace: Pace };
+export interface JudgeChoice {
+  rubricId: string;
+  providerId?: string;
+  model?: string;
+  temperature?: number | null;
+  samples?: number;
+}
+
+interface StartSimBase {
+  anchorName: string;
+  configId: string;
+  liveEval?: JudgeChoice;
+}
+
+export type StartSim = (StartSimBase & { mode: 'live' }) | (StartSimBase & { mode: 'script'; scriptId: string; pace: Pace });
 
 export interface RunInfo {
   sessionId: string;
@@ -139,6 +156,7 @@ export interface RunInfo {
   scriptDurationMs: number | null;
   pace: Pace | null;
   startedAt: string;
+  evalId: string | null;
 }
 
 export type RoomEvent = SimEvent | { type: 'hello'; info: RunInfo } | { type: 'pace'; pace: Pace } | { type: 'gone' };
@@ -194,14 +212,15 @@ export interface EvalDetail {
   createdAt: string;
 }
 
-export interface StartEvalBody {
+export interface StartEvalBody extends JudgeChoice {
   sessionId: string;
-  rubricId: string;
-  providerId?: string;
-  model?: string;
-  temperature?: number | null;
-  samples?: number;
 }
+
+export type EvalEvent =
+  | { type: 'hello'; eval: EvalDetail }
+  | { type: 'item'; item: EvalItemView; summary: EvalSummary; rules: RuleResult; calls: number }
+  | { type: 'end'; status: EvalStatus; error: string | null }
+  | { type: 'gone' };
 
 function subscribeSim(sessionId: string, onEvent: (ev: RoomEvent) => void) {
   const source = new EventSource(`/api/sims/${sessionId}/events`);
@@ -224,7 +243,12 @@ export interface Provider {
   apiKeyMasked: string | null;
   models: ModelInfo[];
   modelsFetchedAt: string | null;
-  defaultModel: string | null;
+  /** 模型池：启用的模型 ID */
+  enabledModels: string[];
+}
+
+export interface ProviderRefresh extends Provider {
+  attempts: ProbeAttempt[];
 }
 
 export interface ProviderInput {
@@ -232,7 +256,7 @@ export interface ProviderInput {
   baseUrl?: string;
   kind?: ProviderKind;
   apiKey?: string;
-  defaultModel?: string | null;
+  enabledModels?: string[];
 }
 
 export interface ChatDone {
@@ -304,11 +328,10 @@ export const api = {
   deleteSession: (id: string) => request<void>(`/sessions/${id}`, { method: 'DELETE' }),
   anchors: () => request<Anchor[]>('/anchors'),
   anchor: (name: string) => request<AnchorDetail>(anchorPath(name)),
-  createAnchor: (body: { name: string; personaPrompt?: string }) => request<Anchor>('/anchors', json('POST', body)),
+  createAnchor: (body: { name: string; code?: string | null; personaPrompt?: string }) => request<Anchor>('/anchors', json('POST', body)),
   updateAnchor: (name: string, body: { code?: string | null; personaPrompt?: string }) => request<Anchor>(anchorPath(name), json('PATCH', body)),
   deleteAnchor: (name: string) => request<void>(anchorPath(name), { method: 'DELETE' }),
-  createConfig: (anchorName: string, body: AnchorConfigInput & { name: string }) =>
-    request<AnchorConfig>(`${anchorPath(anchorName)}/configs`, json('POST', body)),
+  createConfig: (body: AnchorConfigInput & { name: string }) => request<AnchorConfig>('/anchor-configs', json('POST', body)),
   updateConfig: (id: string, body: AnchorConfigInput) => request<AnchorConfig>(`/anchor-configs/${id}`, json('PATCH', body)),
   deleteConfig: (id: string) => request<void>(`/anchor-configs/${id}`, { method: 'DELETE' }),
   allConfigs: () => request<AnchorConfigSummary[]>('/anchor-configs'),
@@ -332,10 +355,10 @@ export const api = {
   startEval: (body: StartEvalBody) => request<EvalDetail>('/evals', json('POST', body)),
   stopEval: (id: string) => request<void>(`/evals/${id}/stop`, { method: 'POST' }),
   deleteEval: (id: string) => request<void>(`/evals/${id}`, { method: 'DELETE' }),
-  subscribeEval: (id: string, onEvent: (ev: { type: string }) => void) => {
+  subscribeEval: (id: string, onEvent: (ev: EvalEvent) => void) => {
     const source = new EventSource(`/api/evals/${id}/events`);
     source.onmessage = (e) => {
-      const ev = JSON.parse(e.data) as { type: string };
+      const ev = JSON.parse(e.data) as EvalEvent;
       onEvent(ev);
       if (ev.type === 'end' || ev.type === 'gone') source.close();
     };
@@ -354,10 +377,10 @@ export const api = {
   updateProvider: (id: string, input: ProviderInput) =>
     request<Provider>(`/providers/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),
   deleteProvider: (id: string) => request<void>(`/providers/${id}`, { method: 'DELETE' }),
-  refreshModels: (id: string) => request<Provider>(`/providers/${id}/models`, { method: 'POST' }),
+  refreshModels: (id: string, detect = false) => request<ProviderRefresh>(`/providers/${id}/models${detect ? '?detect=1' : ''}`, { method: 'POST' }),
   streamChat: (
     providerId: string,
-    body: { model?: string; messages: ChatMessage[]; temperature?: number },
+    body: { model: string; messages: ChatMessage[]; temperature?: number },
     handlers: ChatHandlers,
     signal?: AbortSignal,
   ) => streamSSE(`/providers/${providerId}/chat`, body, handlers, signal),

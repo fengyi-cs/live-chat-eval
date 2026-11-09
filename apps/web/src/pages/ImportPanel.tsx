@@ -5,6 +5,13 @@ import { api, type ImportPreview } from '../api.ts';
 
 const ROLE_LABELS: Record<SpeakerRole, string> = { anchor: '主播', viewer: '观众', action: '动作', ignore: '忽略' };
 
+/** 主播唯一：把一个发言人设为主播时，原来的主播改为观众 */
+function assignRole(roles: Record<string, SpeakerRole>, name: string, role: SpeakerRole): Record<string, SpeakerRole> {
+  const next = { ...roles, [name]: role };
+  if (role === 'anchor') for (const other of Object.keys(next)) if (other !== name && next[other] === 'anchor') next[other] = 'viewer';
+  return next;
+}
+
 export function ImportPanel({ onImported }: { onImported: (sessionId: string) => void }) {
   const queryClient = useQueryClient();
   const [content, setContent] = useState('');
@@ -90,7 +97,7 @@ export function ImportPanel({ onImported }: { onImported: (sessionId: string) =>
                     <select
                       aria-label={`${s.name} 的角色`}
                       value={roles[s.name]}
-                      onChange={(e) => setRoles({ ...roles, [s.name]: e.target.value as SpeakerRole })}
+                      onChange={(e) => setRoles(assignRole(roles, s.name, e.target.value as SpeakerRole))}
                       className="rounded border border-neutral-300 bg-transparent px-1 py-0.5 dark:border-neutral-700"
                     >
                       {Object.entries(ROLE_LABELS).map(([value, label]) => (

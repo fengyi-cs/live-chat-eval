@@ -44,3 +44,13 @@ export function detectProvider(input: string): DetectedProvider {
   if (kind === 'ollama') baseUrl = baseUrl.replace(/\/(api|v1)$/, '');
   return { kind, baseUrl };
 }
+
+/** 按指定类型规整地址：识别结果一致时用识别的补全，否则只做该类型必要的路径整理 */
+export function endpointFor(input: string, kind: ProviderKind): DetectedProvider {
+  const detected = detectProvider(input);
+  if (detected.kind === kind) return detected;
+  let baseUrl = normalizeBaseUrl(input);
+  if (kind === 'anthropic') baseUrl = baseUrl.replace(/\/v1$/, '');
+  if (kind === 'ollama') baseUrl = baseUrl.replace(/\/(api|v1)$/, '');
+  return { kind, baseUrl };
+}

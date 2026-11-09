@@ -28,38 +28,36 @@ export const providers = sqliteTable('providers', {
   baseUrl: text('base_url').notNull(),
   apiKey: text('api_key'),
   models: text('models', { mode: 'json' }).$type<ModelInfo[]>().notNull().default(sql`'[]'`),
+  /** 模型池：用户启用的模型 ID，可以包含列表里没有的手动模型 */
+  enabledModels: text('enabled_models', { mode: 'json' }).$type<string[]>().notNull().default(sql`'[]'`),
   modelsFetchedAt: integer('models_fetched_at', { mode: 'timestamp_ms' }),
-  defaultModel: text('default_model'),
   createdAt: createdAt(),
 });
+
+export type AnchorSource = 'import' | 'manual';
 
 export const anchors = sqliteTable('anchors', {
   name: text('name').primaryKey(),
   code: text('code'),
+  source: text('source').$type<AnchorSource>().notNull().default('manual'),
   personaPrompt: text('persona_prompt').notNull().default(''),
   createdAt: createdAt(),
 });
 
-export const anchorConfigs = sqliteTable(
-  'anchor_configs',
-  {
-    id: text('id').primaryKey(),
-    anchorName: text('anchor_name')
-      .notNull()
-      .references(() => anchors.name, { onDelete: 'cascade' }),
-    name: text('name').notNull(),
-    providerId: text('provider_id').references(() => providers.id, { onDelete: 'set null' }),
-    model: text('model'),
-    temperature: real('temperature'),
-    maxTokens: integer('max_tokens'),
-    contextTurns: integer('context_turns').notNull(),
-    replyRules: text('reply_rules').notNull(),
-    proactivePrompt: text('proactive_prompt').notNull(),
-    strategy: text('strategy', { mode: 'json' }).$type<ReplyStrategy>().notNull(),
-    createdAt: createdAt(),
-  },
-  (t) => [uniqueIndex('anchor_configs_anchor_name').on(t.anchorName, t.name)],
-);
+/** 回复配置：与主播解耦，开播时与任意主播组合使用（表名沿用 anchor_configs） */
+export const anchorConfigs = sqliteTable('anchor_configs', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull().unique(),
+  providerId: text('provider_id').references(() => providers.id, { onDelete: 'set null' }),
+  model: text('model'),
+  temperature: real('temperature'),
+  maxTokens: integer('max_tokens'),
+  contextTurns: integer('context_turns').notNull(),
+  replyRules: text('reply_rules').notNull(),
+  proactivePrompt: text('proactive_prompt').notNull(),
+  strategy: text('strategy', { mode: 'json' }).$type<ReplyStrategy>().notNull(),
+  createdAt: createdAt(),
+});
 
 export const speakerRoles = sqliteTable('speaker_roles', {
   speaker: text('speaker').primaryKey(),
