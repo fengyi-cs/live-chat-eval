@@ -13,6 +13,7 @@ export interface EngineOptions {
   prompt: AnchorPromptConfig;
   generate: Generate;
   script?: readonly ScriptEvent[];
+  initialHistory?: readonly AnchorExchange[];
   onEvent: (ev: SimEvent) => void;
 }
 
@@ -40,12 +41,14 @@ export class LiveRoomEngine {
   private lastActivityAt = 0;
   private readonly seen = new Set<string>();
   private readonly skipped = new Set<number>();
-  private readonly history: AnchorExchange[] = [];
+  private readonly history: AnchorExchange[];
   private stopped = false;
   private finished = false;
   private abort: AbortController | null = null;
 
-  constructor(private readonly opts: EngineOptions) {}
+  constructor(private readonly opts: EngineOptions) {
+    this.history = opts.initialHistory ? [...opts.initialHistory] : [];
+  }
 
   get ended() {
     return this.finished;

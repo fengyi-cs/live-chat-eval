@@ -143,6 +143,7 @@ interface StartSimBase {
   anchorName: string;
   configId: string;
   liveEval?: JudgeChoice;
+  resumeSessionId?: string;
 }
 
 export type StartSim = (StartSimBase & { mode: 'live' }) | (StartSimBase & { mode: 'script'; scriptId: string; pace: Pace });

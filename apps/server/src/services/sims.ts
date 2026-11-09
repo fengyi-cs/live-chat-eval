@@ -6,6 +6,7 @@ import {
   parseScript,
   SimStateError,
   VirtualClock,
+  type AnchorExchange,
   type FetchLike,
   type Pace,
   type SimClock,
@@ -26,6 +27,7 @@ interface StartBase {
   anchorName: string;
   configId: string;
   liveEval?: JudgeInput;
+  resumeSessionId?: string;
 }
 
 export type StartInput = (StartBase & { mode: 'live' }) | (StartBase & { mode: 'script'; scriptId: string; pace: Pace });
@@ -105,6 +107,8 @@ export class SimulationManager {
       script = parsed.events;
     }
 
+    const resumeHistory = input.resumeSessionId ? this.loadResumeHistory(input.resumeSessionId) : [];
+
     const sessionId = randomUUID();
     const startedWall = Date.now();
     const pace = input.mode === 'script' ? input.pace : null;
@@ -164,6 +168,7 @@ export class SimulationManager {
       strategy: cfg.strategy,
       prompt,
       script,
+      initialHistory: resumeHistory,
       generate: createGenerate(
         configOf(provider),
         { model, temperature: cfg.temperature ?? undefined, maxTokens: cfg.maxTokens ?? undefined },
@@ -173,6 +178,8 @@ export class SimulationManager {
     });
     run = { info, engine, clock, virtual, startedWall, log: [], lastClock: null, partial: null, listeners: new Set() };
     this.runs.set(sessionId, run);
+
+    if (input.resumeSessionId) this.replayResumeLog(run, input.resumeSessionId);
 
     void engine
       .run()
@@ -190,6 +197,54 @@ export class SimulationManager {
     if (run.partial) listener({ type: 'delta', text: run.partial });
     run.listeners.add(listener);
     return () => run.listeners.delete(listener);
+  }
+
+  private loadResumeHistory(resumeSessionId: string): AnchorExchange[] {
+    const rows = this.db.select().from(messages).where(eq(messages.sessionId, resumeSessionId)).all().sort((a, b) => a.seq - b.seq);
+    if (rows.length === 0) return [];
+    const history: AnchorExchange[] = [];
+    let currentDanmaku: { speaker: string; text: string }[] = [];
+    let pendingReplyTo: number[] = [];
+    for (const m of rows) {
+      if (m.role === 'viewer' || m.role === 'action') {
+        currentDanmaku.push({ speaker: m.speaker, text: m.text });
+        if (m.seq != null && m.repliesTo) pendingReplyTo = m.repliesTo;
+      } else if (m.role === 'anchor' && m.text) {
+        if (currentDanmaku.length > 0) {
+          history.push({ input: { kind: 'danmaku', danmaku: currentDanmaku }, reply: m.text });
+          currentDanmaku = [];
+          pendingReplyTo = [];
+        } else if (m.proactive) {
+          history.push({ input: { kind: 'proactive' }, reply: m.text });
+        }
+      }
+    }
+    return history;
+  }
+
+  private replayResumeLog(run: Run, resumeSessionId: string) {
+    const rows = this.db.select().from(messages).where(eq(messages.sessionId, resumeSessionId)).all().sort((a, b) => a.seq - b.seq);
+    if (rows.length === 0) return;
+    const startedWall = run.startedWall;
+    for (const m of rows) {
+      const at = 0;
+      const message: SimMessage = {
+        seq: m.seq,
+        at,
+        role: m.role === 'anchor' ? 'anchor' : 'viewer',
+        speaker: m.speaker,
+        text: m.text,
+        repliesTo: m.repliesTo,
+        proactive: m.proactive,
+        latencyMs: m.latencyMs,
+        firstTokenMs: m.genFirstTokenMs,
+        genTotalMs: m.genTotalMs,
+      };
+      const ev: SimEvent = message.role === 'anchor'
+        ? { type: 'reply', message }
+        : { type: 'danmaku', message };
+      run.log.push(ev);
+    }
   }
 
   inject(sessionId: string, speaker: string, text: string): SimMessage {

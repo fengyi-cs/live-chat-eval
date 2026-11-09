@@ -16,7 +16,7 @@ const paceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('step') }),
 ]);
 
-const startBase = { anchorName: z.string().trim().min(1).max(100), configId: z.string().min(1), liveEval: judgeSchema.optional() };
+const startBase = { anchorName: z.string().trim().min(1).max(100), configId: z.string().min(1), liveEval: judgeSchema.optional(), resumeSessionId: z.string().optional() };
 
 const startSchema = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('live'), ...startBase }),

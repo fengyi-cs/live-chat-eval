@@ -3,10 +3,10 @@ import { ActivityIcon } from 'lucide-react';
 import { EvalsPage } from './pages/EvalsPage.tsx';
 import { ProvidersPage } from './pages/ProvidersPage.tsx';
 import { RubricsPage } from './pages/RubricsPage.tsx';
-import { RoomPage } from './routes/RoomPage.tsx';
+import { LiveRoom } from './pages/LiveRoom.tsx';
 
 const NAV = [
-  { to: '/room', label: '直播间' },
+  { to: '/', label: '直播间', end: true },
   { to: '/evals', label: '评估分析' },
   { to: '/rubrics', label: '评分标准' },
   { to: '/settings', label: '设置' },
@@ -40,7 +40,7 @@ export function App() {
           </div>
           <nav className="mt-2 -mx-4 flex gap-1 overflow-x-auto px-4 [scrollbar-width:none]" aria-label="主导航">
             {NAV.map((n) => (
-              <NavLink key={n.to} to={n.to} className={tabClass}>
+              <NavLink key={n.to} to={n.to} end={'end' in n ? n.end : undefined} className={tabClass}>
                 {n.label}
               </NavLink>
             ))}
@@ -49,13 +49,11 @@ export function App() {
       </header>
       <div className="mx-auto max-w-7xl p-4">
         <Routes>
-          <Route path="/" element={<Navigate to="/room" replace />} />
-          <Route path="/room" element={<RoomPage />} />
-          <Route path="/room/:sub" element={<RoomPage />} />
+          <Route path="/" element={<LiveRoom />} />
           <Route path="/evals" element={<EvalsPage />} />
           <Route path="/rubrics" element={<RubricsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
-          <Route path="*" element={<Navigate to="/room" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
     </div>
