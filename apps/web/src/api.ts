@@ -267,6 +267,17 @@ export interface ChatDone {
   totalMs: number;
 }
 
+export interface PingResponse {
+  model: string;
+  kind: ProviderKind;
+  previousKind: ProviderKind | null;
+  reply: string;
+  usage: ChatUsage | null;
+  firstTokenMs: number | null;
+  totalMs: number;
+  attempts: { kind: ProviderKind; error: string | null }[];
+}
+
 export interface ChatHandlers {
   onDelta: (text: string) => void;
   onDone: (info: ChatDone) => void;
@@ -379,6 +390,8 @@ export const api = {
     request<Provider>(`/providers/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),
   deleteProvider: (id: string) => request<void>(`/providers/${id}`, { method: 'DELETE' }),
   refreshModels: (id: string, detect = false) => request<ProviderRefresh>(`/providers/${id}/models${detect ? '?detect=1' : ''}`, { method: 'POST' }),
+  pingProvider: (id: string, model: string, signal?: AbortSignal) =>
+    request<PingResponse>(`/providers/${id}/ping`, { ...json('POST', { model }), signal }),
   streamChat: (
     providerId: string,
     body: { model: string; messages: ChatMessage[]; temperature?: number },

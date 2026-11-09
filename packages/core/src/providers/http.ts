@@ -66,3 +66,14 @@ export function parseJson<T>(raw: string): T {
     throw new ProviderError(`无法解析服务商返回的数据：${raw.slice(0, MAX_ERROR_BODY)}`);
   }
 }
+
+/** 读取 JSON 响应；地址指向网页等非接口内容时抛 ProviderError，调用方据此重试其他路径 */
+export async function readJson<T>(res: Response): Promise<T> {
+  const raw = await res.text();
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    const isHtml = /^\s*</.test(raw);
+    throw new ProviderError(isHtml ? '地址返回的是网页而不是接口数据，请检查是否缺少 /v1 等路径' : `无法解析服务商返回的数据：${raw.slice(0, MAX_ERROR_BODY)}`);
+  }
+}

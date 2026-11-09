@@ -9,6 +9,7 @@ import {
   deleteProvider,
   getProvider,
   listProviders,
+  pingProvider,
   refreshModels,
   resolveEndpoint,
   updateProvider,
@@ -60,6 +61,7 @@ export function providerRoutes(db: Db, fetchImpl?: FetchLike) {
       return c.body(null, 204);
     })
     .post('/:id/models', async (c) => c.json(await refreshModels(db, c.req.param('id'), fetchImpl, c.req.query('detect') === '1')))
+    .post('/:id/ping', zValidator('json', z.object({ model: modelIdSchema })), async (c) => c.json(await pingProvider(db, c.req.param('id'), c.req.valid('json').model, fetchImpl, c.req.raw.signal)))
     .post('/:id/chat', zValidator('json', chatSchema), (c) => {
       const row = getProvider(db, c.req.param('id'));
       return streamChatSSE(c, configOf(row), c.req.valid('json'), fetchImpl);

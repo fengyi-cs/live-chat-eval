@@ -1,9 +1,10 @@
-export type ProviderKind = 'openai' | 'anthropic' | 'gemini' | 'ollama';
+export type ProviderKind = 'openai' | 'openai-responses' | 'anthropic' | 'gemini' | 'ollama';
 
-export const PROVIDER_KINDS: readonly ProviderKind[] = ['openai', 'anthropic', 'gemini', 'ollama'];
+export const PROVIDER_KINDS: readonly ProviderKind[] = ['openai', 'openai-responses', 'anthropic', 'gemini', 'ollama'];
 
 export const PROVIDER_KIND_LABELS: Record<ProviderKind, string> = {
-  openai: 'OpenAI 兼容',
+  openai: 'OpenAI 兼容（Chat Completions）',
+  'openai-responses': 'OpenAI Responses',
   anthropic: 'Anthropic',
   gemini: 'Google Gemini',
   ollama: 'Ollama',

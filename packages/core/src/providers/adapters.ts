@@ -1,4 +1,4 @@
-import { joinUrl, ndjson, parseJson, send, sseData } from './http.ts';
+import { joinUrl, ndjson, parseJson, readJson, send, sseData } from './http.ts';
 import {
   ProviderError,
   type ChatMessage,
@@ -27,7 +27,7 @@ const openaiHeaders = (c: ProviderConfig): Record<string, string> => (c.apiKey ?
 export const openaiAdapter: ProviderAdapter = {
   async listModels(c, opts) {
     const res = await send(joinUrl(c.baseUrl, 'models'), { headers: openaiHeaders(c) }, opts);
-    const body = (await res.json()) as { data?: { id: string }[] };
+    const body = await readJson<{ data?: { id: string }[] }>(res);
     if (!Array.isArray(body.data)) throw new ProviderError('返回内容不是 OpenAI 格式的模型列表');
     return sortModels(body.data.map((m) => ({ id: m.id })));
   },
@@ -63,6 +63,51 @@ export const openaiAdapter: ProviderAdapter = {
   },
 };
 
+/** OpenAI Responses 接口（/v1/responses）：模型列表与 Chat Completions 共用 /models */
+export const openaiResponsesAdapter: ProviderAdapter = {
+  listModels: openaiAdapter.listModels,
+  async *chat(c, req, opts) {
+    const { system, rest } = splitSystem(req.messages);
+    const res = await send(
+      joinUrl(c.baseUrl, 'responses'),
+      {
+        method: 'POST',
+        headers: json(openaiHeaders(c)),
+        body: JSON.stringify({
+          model: req.model,
+          instructions: system,
+          input: rest.map((m) => ({ role: m.role, content: m.content })),
+          temperature: req.temperature,
+          max_output_tokens: req.maxTokens,
+          store: false,
+          stream: true,
+        }),
+      },
+      opts,
+    );
+    let usage: ChatUsage | undefined;
+    for await (const data of sseData(res)) {
+      if (data === '[DONE]') break;
+      const ev = parseJson<{
+        type?: string;
+        delta?: string;
+        message?: string;
+        response?: { usage?: { input_tokens?: number; output_tokens?: number } | null; error?: { message?: string } | null; incomplete_details?: { reason?: string } | null };
+        error?: { message?: string };
+      }>(data);
+      if (ev.type === 'response.output_text.delta' && ev.delta) yield { type: 'delta', text: ev.delta };
+      else if (ev.type === 'error') throw new ProviderError(ev.message ?? ev.error?.message ?? '服务商返回错误');
+      else if (ev.type === 'response.failed') throw new ProviderError(ev.response?.error?.message ?? '服务商生成失败');
+      else if (ev.type === 'response.completed' || ev.type === 'response.incomplete') {
+        const u = ev.response?.usage;
+        if (u) usage = { inputTokens: u.input_tokens, outputTokens: u.output_tokens };
+        break;
+      }
+    }
+    yield { type: 'done', usage };
+  },
+};
+
 const anthropicHeaders = (c: ProviderConfig): Record<string, string> => ({
   'anthropic-version': '2023-06-01',
   ...(c.apiKey ? { 'x-api-key': c.apiKey } : {}),
@@ -71,7 +116,7 @@ const anthropicHeaders = (c: ProviderConfig): Record<string, string> => ({
 export const anthropicAdapter: ProviderAdapter = {
   async listModels(c, opts) {
     const res = await send(joinUrl(c.baseUrl, 'v1/models?limit=1000'), { headers: anthropicHeaders(c) }, opts);
-    const body = (await res.json()) as { data?: { id: string; display_name?: string }[] };
+    const body = await readJson<{ data?: { id: string; display_name?: string }[] }>(res);
     if (!Array.isArray(body.data)) throw new ProviderError('返回内容不是 Anthropic 格式的模型列表');
     return sortModels(body.data.map((m) => ({ id: m.id, name: m.display_name })));
   },
@@ -121,10 +166,10 @@ export const geminiAdapter: ProviderAdapter = {
     do {
       const query = `pageSize=1000${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`;
       const res = await send(joinUrl(c.baseUrl, `models?${query}`), { headers: geminiHeaders(c) }, opts);
-      const body = (await res.json()) as {
+      const body = await readJson<{
         models?: { name: string; displayName?: string; supportedGenerationMethods?: string[] }[];
         nextPageToken?: string;
-      };
+      }>(res);
       if (!Array.isArray(body.models)) throw new ProviderError('返回内容不是 Gemini 格式的模型列表');
       for (const m of body.models) {
         if (m.supportedGenerationMethods && !m.supportedGenerationMethods.includes('generateContent')) continue;
@@ -168,7 +213,7 @@ export const geminiAdapter: ProviderAdapter = {
 export const ollamaAdapter: ProviderAdapter = {
   async listModels(c, opts) {
     const res = await send(joinUrl(c.baseUrl, 'api/tags'), { headers: openaiHeaders(c) }, opts);
-    const body = (await res.json()) as { models?: { name: string }[] };
+    const body = await readJson<{ models?: { name: string }[] }>(res);
     if (!Array.isArray(body.models)) throw new ProviderError('返回内容不是 Ollama 格式的模型列表');
     return sortModels(body.models.map((m) => ({ id: m.name })));
   },
@@ -203,6 +248,7 @@ export const ollamaAdapter: ProviderAdapter = {
 
 export const PROVIDER_ADAPTERS: Record<ProviderKind, ProviderAdapter> = {
   openai: openaiAdapter,
+  'openai-responses': openaiResponsesAdapter,
   anthropic: anthropicAdapter,
   gemini: geminiAdapter,
   ollama: ollamaAdapter,

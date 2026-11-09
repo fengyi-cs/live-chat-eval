@@ -6,6 +6,7 @@ import {
   ProviderError,
   type CallOptions,
   type ChatRequest,
+  type ChatUsage,
   type ModelInfo,
   type ProviderConfig,
   type ProviderKind,
@@ -29,8 +30,61 @@ export async function chatText(config: ProviderConfig, req: ChatRequest, opts?: 
   return text;
 }
 
+export const isOpenAIFamily = (kind: ProviderKind) => kind === 'openai' || kind === 'openai-responses';
+
+export interface PingAttempt {
+  kind: ProviderKind;
+  error: string | null;
+}
+
+export interface PingResult {
+  kind: ProviderKind;
+  reply: string;
+  usage: ChatUsage | null;
+  firstTokenMs: number | null;
+  totalMs: number;
+  attempts: PingAttempt[];
+}
+
+const PING_MAX_TOKENS = 64;
+
 /**
- * 拉取模型列表；OpenAI 兼容地址路径没有版本号且失败（鉴权失败除外）时，补 /v1 重试。
+ * 发一条 ping 验证模型可用。OpenAI 系网关常只给部分模型开放 Chat Completions 或 Responses 其中一种，
+ * 当前格式失败（鉴权失败除外）时改用另一种重试；返回的 kind 与配置不同就说明应该切换接口类型。
+ */
+export async function pingChat(config: ProviderConfig, model: string, opts?: CallOptions): Promise<PingResult> {
+  const order: ProviderKind[] = isOpenAIFamily(config.kind) ? [config.kind, config.kind === 'openai' ? 'openai-responses' : 'openai'] : [config.kind];
+  const attempts: PingAttempt[] = [];
+  let firstError: unknown = null;
+  for (const kind of order) {
+    const started = performance.now();
+    let firstTokenMs: number | null = null;
+    let reply = '';
+    let usage: ChatUsage | null = null;
+    try {
+      const req: ChatRequest = { model, messages: [{ role: 'user', content: 'ping' }], maxTokens: PING_MAX_TOKENS };
+      for await (const chunk of chatStream({ ...config, kind }, req, opts)) {
+        if (chunk.type === 'delta') {
+          firstTokenMs ??= Math.round(performance.now() - started);
+          reply += chunk.text;
+        } else usage = chunk.usage ?? null;
+      }
+      attempts.push({ kind, error: null });
+      return { kind, reply, usage, firstTokenMs, totalMs: Math.round(performance.now() - started), attempts };
+    } catch (err) {
+      if (opts?.signal?.aborted) throw err;
+      firstError ??= err;
+      attempts.push({ kind, error: (err as Error).message });
+      if (err instanceof ProviderError && (err.status === 401 || err.status === 403)) break;
+    }
+  }
+  if (attempts.length === 1) throw firstError;
+  const summary = attempts.map((a) => `${PROVIDER_KIND_LABELS[a.kind]}：${a.error}`).join('；');
+  throw new ProviderError(`两种 OpenAI 接口格式都不可用（${summary}）`, firstError instanceof ProviderError ? firstError.status : undefined);
+}
+
+/**
+ * 拉取模型列表；OpenAI 系地址路径没有版本号且失败（鉴权失败除外，包括返回网页的情况）时，补 /v1 重试。
  * 返回实际可用的 baseUrl，调用方应保存它。
  */
 export async function resolveModels(config: ProviderConfig, opts?: CallOptions): Promise<{ baseUrl: string; models: ModelInfo[] }> {
@@ -38,7 +92,7 @@ export async function resolveModels(config: ProviderConfig, opts?: CallOptions):
     return { baseUrl: config.baseUrl, models: await listModels(config, opts) };
   } catch (err) {
     const authFailed = err instanceof ProviderError && (err.status === 401 || err.status === 403);
-    const canRetry = config.kind === 'openai' && err instanceof ProviderError && !authFailed && !opts?.signal?.aborted && !/\/v\d[\w.]*$/.test(config.baseUrl);
+    const canRetry = isOpenAIFamily(config.kind) && err instanceof ProviderError && !authFailed && !opts?.signal?.aborted && !/\/v\d[\w.]*$/.test(config.baseUrl);
     if (!canRetry) throw err;
     const baseUrl = joinUrl(config.baseUrl, 'v1');
     return { baseUrl, models: await listModels({ ...config, baseUrl }, opts) };
@@ -69,7 +123,7 @@ const PROBE_KINDS: readonly ProviderKind[] = ['openai', 'anthropic', 'gemini'];
  */
 export async function probeModels(input: string, apiKey: string | undefined, opts?: CallOptions): Promise<ProbeResult> {
   const detected = detectProvider(input).kind;
-  const order = [detected, ...PROBE_KINDS.filter((k) => k !== detected)];
+  const order = [detected, ...PROBE_KINDS.filter((k) => k !== detected && !(isOpenAIFamily(k) && isOpenAIFamily(detected)))];
   const attempts: ProbeAttempt[] = [];
   let firstEmpty: Omit<ProbeResult, 'attempts'> | null = null;
   let firstError: unknown = null;

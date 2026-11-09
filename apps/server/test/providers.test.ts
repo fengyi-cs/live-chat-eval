@@ -147,4 +147,21 @@ describe('provider api', () => {
     const failed = parseSse(await (await send(app, 'POST', `/api/providers/${p.id}/chat`, { model: 'broken', messages: [{ role: 'user', content: 'x' }] })).text());
     expect(failed).toEqual([{ event: 'error', data: { message: expect.stringContaining('404') } }]);
   });
+
+  it('pings and switches the provider to the responses format when only it works', async () => {
+    const responsesOnly: FetchLike = async (url) =>
+      url === 'https://gw.example/v1/responses'
+        ? new Response(['data: {"type":"response.output_text.delta","delta":"pong"}', 'data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1}}}', ''].join('\n\n'))
+        : new Response('no route', { status: 503 });
+    const app = createApp(freshDb().db, { fetch: responsesOnly });
+    const p = await (await send(app, 'POST', '/api/providers', { name: 'CCH', baseUrl: 'https://gw.example/v1', apiKey: KEY })).json();
+    expect(p.kind).toBe('openai');
+
+    const ping = await (await send(app, 'POST', `/api/providers/${p.id}/ping`, { model: 'm' })).json();
+    expect(ping).toMatchObject({ model: 'm', kind: 'openai-responses', previousKind: 'openai', reply: 'pong' });
+    expect(await (await app.request('/api/providers')).json()).toMatchObject([{ id: p.id, kind: 'openai-responses' }]);
+
+    const again = await (await send(app, 'POST', `/api/providers/${p.id}/ping`, { model: 'm' })).json();
+    expect(again).toMatchObject({ kind: 'openai-responses', previousKind: null });
+  });
 });

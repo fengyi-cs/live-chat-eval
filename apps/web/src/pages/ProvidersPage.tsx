@@ -2,7 +2,7 @@ import { PROVIDER_KIND_LABELS, PROVIDER_KINDS, type ProbeAttempt, type ProviderK
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckIcon, ChevronsUpDownIcon, PlusIcon, XIcon } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { api, type ChatDone, type Provider, type ProviderInput } from '../api.ts';
+import { api, type PingResponse, type Provider, type ProviderInput } from '../api.ts';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '../components/ui/command.tsx';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover.tsx';
 import { cn } from '../lib/utils.ts';
@@ -113,6 +113,13 @@ function ProviderForm({
 
 function ModelSelector({ choices, value, onChange }: { choices: string[]; value: string; onChange: (m: string) => void }) {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const term = search.trim();
+  const pick = (m: string) => {
+    onChange(m);
+    setSearch('');
+    setOpen(false);
+  };
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -128,11 +135,17 @@ function ModelSelector({ choices, value, onChange }: { choices: string[]; value:
       </PopoverTrigger>
       <PopoverContent className="w-(--radix-popover-trigger-width) min-w-56 p-0" align="start">
         <Command>
-          <CommandInput placeholder="搜索模型，或输入模型 ID 测试" />
+          <CommandInput value={search} onValueChange={setSearch} placeholder="搜索模型，或输入模型 ID 测试" />
           <CommandList className="max-h-64">
-            <CommandEmpty>没有匹配的模型，可输入完整模型 ID 后回车</CommandEmpty>
+            <CommandEmpty>{term ? null : '没有匹配的模型'}</CommandEmpty>
+            {term && !choices.includes(term) && (
+              <CommandItem value={`__custom__ ${term}`} onSelect={() => pick(term)}>
+                <PlusIcon className="size-4" />
+                测试「{term}」
+              </CommandItem>
+            )}
             {choices.map((m) => (
-              <CommandItem key={m} value={m} onSelect={() => { onChange(m); setOpen(false); }}>
+              <CommandItem key={m} value={m} onSelect={() => pick(m)}>
                 <CheckIcon className={cn('size-4', m === value ? 'opacity-100' : 'opacity-0')} />
                 <span className="truncate">{m}</span>
               </CommandItem>
@@ -144,24 +157,18 @@ function ModelSelector({ choices, value, onChange }: { choices: string[]; value:
   );
 }
 
-interface PingResult {
-  status: 'ok' | 'error';
-  reply: string;
-  model: string;
-  firstTokenMs: number | null;
-  totalMs: number;
-  error?: string;
-}
+type PingResult = ({ status: 'ok' } & PingResponse) | { status: 'error'; model: string; error: string };
 
 function PingPongTest({ provider }: { provider: Provider }) {
+  const queryClient = useQueryClient();
   const choices = provider.enabledModels.length ? provider.enabledModels : provider.models.map((m) => m.id);
   const [model, setModel] = usePersistentState('lce.ping.model', '');
   const [result, setResult] = useState<PingResult | null>(null);
   const [busy, setBusy] = useState(false);
   const abort = useRef<AbortController | null>(null);
 
-  const effectiveModel = model && choices.includes(model) ? model : choices[0] ?? model;
-  useEffect(() => setModel((m) => (m && choices.includes(m) ? m : (choices[0] ?? ''))), [provider.id, choices.join('\n')]);
+  const effectiveModel = model || choices[0] || '';
+  useEffect(() => setResult(null), [provider.id]);
   useEffect(() => () => abort.current?.abort(), []);
 
   const run = async () => {
@@ -170,36 +177,12 @@ function PingPongTest({ provider }: { provider: Provider }) {
     setBusy(true);
     const ctrl = new AbortController();
     abort.current = ctrl;
-    let reply = '';
-    const meta: { done: ChatDone | null } = { done: null };
     try {
-      await api.streamChat(
-        provider.id,
-        { model: effectiveModel, messages: [{ role: 'user', content: 'ping' }] },
-        {
-          onDelta: (t) => { reply += t; },
-          onDone: (i: ChatDone) => { meta.done = i; },
-        },
-        ctrl.signal,
-      );
-      setResult({
-        status: 'ok',
-        reply: reply.trim() || '(空回复)',
-        model: meta.done?.model ?? effectiveModel,
-        firstTokenMs: meta.done?.firstTokenMs ?? null,
-        totalMs: meta.done?.totalMs ?? 0,
-      });
+      const res = await api.pingProvider(provider.id, effectiveModel, ctrl.signal);
+      setResult({ status: 'ok', ...res });
+      if (res.previousKind) queryClient.invalidateQueries({ queryKey: ['providers'] });
     } catch (err) {
-      if (!ctrl.signal.aborted) {
-        setResult({
-          status: 'error',
-          reply: '',
-          model: effectiveModel,
-          firstTokenMs: null,
-          totalMs: 0,
-          error: (err as Error).message,
-        });
-      }
+      if (!ctrl.signal.aborted) setResult({ status: 'error', model: effectiveModel, error: (err as Error).message });
     } finally {
       setBusy(false);
     }
@@ -235,10 +218,15 @@ function PingPongTest({ provider }: { provider: Provider }) {
           {result.status === 'ok' ? (
             <>
               <p className="font-medium text-green-700 dark:text-green-300">✓ 连通正常</p>
-              <p className="mt-1 whitespace-pre-wrap text-neutral-700 dark:text-neutral-300">{result.reply}</p>
+              <p className="mt-1 whitespace-pre-wrap text-neutral-700 dark:text-neutral-300">{result.reply.trim() || '（空回复）'}</p>
               <p className="mt-1 text-xs text-neutral-500">
-                {result.model} · 首字 {result.firstTokenMs ?? '-'}ms · 总耗时 {result.totalMs}ms
+                {result.model} · {PROVIDER_KIND_LABELS[result.kind]} · 首字 {result.firstTokenMs ?? '-'}ms · 总耗时 {result.totalMs}ms
               </p>
+              {result.previousKind && (
+                <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                  「{PROVIDER_KIND_LABELS[result.previousKind]}」格式不可用，已自动切换为「{PROVIDER_KIND_LABELS[result.kind]}」
+                </p>
+              )}
             </>
           ) : (
             <>

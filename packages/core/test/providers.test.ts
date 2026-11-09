@@ -4,6 +4,7 @@ import {
   chatText,
   detectProvider,
   listModels,
+  pingChat,
   ProviderError,
   probeModels,
   resolveModels,
@@ -51,15 +52,22 @@ async function collect(it: AsyncIterable<ChatChunk>) {
 describe('detectProvider', () => {
   it.each([
     ['https://api.openai.com/v1/chat/completions', 'openai', 'https://api.openai.com/v1'],
-    ['api.deepseek.com', 'openai', 'http://api.deepseek.com'],
+    ['api.deepseek.com', 'openai', 'https://api.deepseek.com'],
     ['https://dashscope.aliyuncs.com/compatible-mode/v1/', 'openai', 'https://dashscope.aliyuncs.com/compatible-mode/v1'],
+    ['https://cch.example/v1/responses', 'openai-responses', 'https://cch.example/v1'],
     ['https://api.anthropic.com/v1/messages', 'anthropic', 'https://api.anthropic.com'],
+    ['https://gw.example/v1/messages', 'anthropic', 'https://gw.example'],
     ['https://open.bigmodel.cn/api/anthropic', 'anthropic', 'https://open.bigmodel.cn/api/anthropic'],
     ['https://generativelanguage.googleapis.com', 'gemini', 'https://generativelanguage.googleapis.com/v1beta'],
     ['https://generativelanguage.googleapis.com/v1/models', 'gemini', 'https://generativelanguage.googleapis.com/v1'],
+    ['https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse', 'gemini', 'https://generativelanguage.googleapis.com/v1beta'],
+    ['https://gw.example/gemini', 'gemini', 'https://gw.example/gemini/v1beta'],
+    ['https://gw.example/v1beta', 'gemini', 'https://gw.example/v1beta'],
+    ['https://gw.example/v1/models/gemini-2.5-pro:generateContent', 'gemini', 'https://gw.example/v1beta'],
     ['localhost:11434/api/chat', 'ollama', 'http://localhost:11434'],
     ['http://127.0.0.1:11434/v1', 'ollama', 'http://127.0.0.1:11434'],
     ['http://10.0.0.5:8000/v1', 'openai', 'http://10.0.0.5:8000/v1'],
+    ['10.0.0.5:8000/v1', 'openai', 'http://10.0.0.5:8000/v1'],
   ])('%s -> %s', (input, kind, baseUrl) => {
     expect(detectProvider(input)).toEqual({ kind, baseUrl });
   });
@@ -124,6 +132,94 @@ describe('openai adapter', () => {
   it('resolveModels does not retry auth failures', async () => {
     const f = fakeFetch(() => new Response('', { status: 401 }));
     await expect(resolveModels({ ...config, baseUrl: 'https://llm.local' }, { fetch: f.fn })).rejects.toMatchObject({ status: 401 });
+    expect(f.calls).toHaveLength(1);
+  });
+
+  it('resolveModels retries with /v1 when the bare host serves an html page with 200', async () => {
+    const f = fakeFetch((url) => (url === 'https://llm.local/v1/models' ? jsonRes({ data: [{ id: 'a' }] }) : new Response('<!DOCTYPE html><html></html>')));
+    expect(await resolveModels({ ...config, baseUrl: 'https://llm.local' }, { fetch: f.fn })).toEqual({ baseUrl: 'https://llm.local/v1', models: [{ id: 'a' }] });
+  });
+
+  it('reports an html page as a missing path instead of a json parse crash', async () => {
+    const f = fakeFetch(() => new Response('<!DOCTYPE html><html></html>'));
+    await expect(listModels(config, { fetch: f.fn })).rejects.toThrow('网页');
+  });
+});
+
+describe('openai responses adapter', () => {
+  const config: ProviderConfig = { kind: 'openai-responses', baseUrl: 'https://llm.local/v1', apiKey: 'sk-test' };
+
+  it('posts to /responses with instructions and input, streams text deltas and usage', async () => {
+    const f = fakeFetch(() =>
+      streamOf([
+        'event: response.created\ndata: {"type":"response.created","response":{"usage":null}}\n\n',
+        'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"P"}\n\n',
+        'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"ong"}\n\n',
+        'event: response.output_text.done\ndata: {"type":"response.output_text.done","text":"Pong"}\n\n',
+        'event: response.completed\ndata: {"type":"response.completed","response":{"usage":{"input_tokens":13,"output_tokens":5}}}\n\n',
+      ]),
+    );
+    const chunks = await collect(
+      chatStream(config, { model: 'm', messages: [{ role: 'system', content: 'S' }, { role: 'user', content: 'ping' }], temperature: 0.5, maxTokens: 32 }, { fetch: f.fn }),
+    );
+    expect(chunks).toEqual([
+      { type: 'delta', text: 'P' },
+      { type: 'delta', text: 'ong' },
+      { type: 'done', usage: { inputTokens: 13, outputTokens: 5 } },
+    ]);
+    expect(f.calls[0]!.url).toBe('https://llm.local/v1/responses');
+    expect(headersOf(f.calls[0]!).authorization).toBe('Bearer sk-test');
+    expect(bodyOf(f.calls[0]!)).toEqual({
+      model: 'm',
+      instructions: 'S',
+      input: [{ role: 'user', content: 'ping' }],
+      temperature: 0.5,
+      max_output_tokens: 32,
+      store: false,
+      stream: true,
+    });
+  });
+
+  it('surfaces failed responses and in-stream errors', async () => {
+    const failed = fakeFetch(() => streamOf(['data: {"type":"response.failed","response":{"error":{"message":"model overloaded"}}}\n\n']));
+    await expect(chatText(config, { model: 'm', messages: [{ role: 'user', content: 'x' }] }, { fetch: failed.fn })).rejects.toThrow('model overloaded');
+    const errored = fakeFetch(() => streamOf(['data: {"type":"error","message":"bad input"}\n\n']));
+    await expect(chatText(config, { model: 'm', messages: [{ role: 'user', content: 'x' }] }, { fetch: errored.fn })).rejects.toThrow('bad input');
+  });
+});
+
+describe('pingChat', () => {
+  const responsesOnly = (url: string) =>
+    url.endsWith('/responses')
+      ? streamOf(['data: {"type":"response.output_text.delta","delta":"pong"}\n\n', 'data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1}}}\n\n'])
+      : new Response('{"error":{"message":"No available providers"}}', { status: 503 });
+
+  it('falls back from chat completions to responses and reports the working kind', async () => {
+    const f = fakeFetch(responsesOnly);
+    const res = await pingChat({ kind: 'openai', baseUrl: 'https://gw.example/v1', apiKey: 'k' }, 'm', { fetch: f.fn });
+    expect(res).toMatchObject({ kind: 'openai-responses', reply: 'pong', usage: { inputTokens: 1, outputTokens: 1 } });
+    expect(res.attempts.map((a) => [a.kind, a.error === null])).toEqual([
+      ['openai', false],
+      ['openai-responses', true],
+    ]);
+    expect(f.calls.map((c) => c.url)).toEqual(['https://gw.example/v1/chat/completions', 'https://gw.example/v1/responses']);
+  });
+
+  it('does not fall back on auth failures, and reports both errors when both formats fail', async () => {
+    const denied = fakeFetch(() => new Response('bad key', { status: 401 }));
+    await expect(pingChat({ kind: 'openai', baseUrl: 'https://gw.example/v1', apiKey: 'k' }, 'm', { fetch: denied.fn })).rejects.toMatchObject({ status: 401 });
+    expect(denied.calls).toHaveLength(1);
+
+    const down = fakeFetch(() => new Response('down', { status: 503 }));
+    const err = await pingChat({ kind: 'openai-responses', baseUrl: 'https://gw.example/v1' }, 'm', { fetch: down.fn }).catch((e) => e);
+    expect(err).toMatchObject({ status: 503 });
+    expect(err.message).toContain('Chat Completions');
+    expect(down.calls).toHaveLength(2);
+  });
+
+  it('does not try openai formats for other kinds', async () => {
+    const f = fakeFetch(() => new Response('nope', { status: 500 }));
+    await expect(pingChat({ kind: 'anthropic', baseUrl: 'https://api.anthropic.com' }, 'c', { fetch: f.fn })).rejects.toMatchObject({ status: 500 });
     expect(f.calls).toHaveLength(1);
   });
 });

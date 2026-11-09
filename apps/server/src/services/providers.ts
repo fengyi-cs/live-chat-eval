@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { endpointFor, detectProvider, probeModels, resolveModels, type FetchLike, type ProbeAttempt, type ProviderConfig, type ProviderKind } from '@lce/core';
+import { endpointFor, detectProvider, pingChat, probeModels, resolveModels, type FetchLike, type ProbeAttempt, type ProviderConfig, type ProviderKind } from '@lce/core';
 import { asc, eq } from 'drizzle-orm';
 import type { Db } from '../db/client.ts';
 import { providers } from '../db/schema.ts';
@@ -125,6 +125,15 @@ export async function refreshModels(db: Db, id: string, fetchImpl?: FetchLike, d
 
 function dedupe(models: readonly string[]) {
   return [...new Set(models.map((m) => m.trim()).filter(Boolean))];
+}
+
+/** 连通性测试；另一种 OpenAI 接口格式才通时，把接口类型改成能用的那种，后续开播和评测直接可用 */
+export async function pingProvider(db: Db, id: string, model: string, fetchImpl?: FetchLike, signal?: AbortSignal) {
+  const row = getProvider(db, id);
+  const result = await pingChat(configOf(row), model, { fetch: fetchImpl, signal });
+  const switched = result.kind !== row.kind;
+  if (switched) db.update(providers).set({ kind: result.kind }).where(eq(providers.id, id)).run();
+  return { ...result, model, previousKind: switched ? row.kind : null };
 }
 
 /** 取模型池里的一个模型；不在池里（被停用或从没启用）时报错 */
