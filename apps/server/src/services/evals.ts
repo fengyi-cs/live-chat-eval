@@ -97,6 +97,7 @@ function loadSession(db: Db, sessionId: string, allowRunning = false): EvalSessi
     personaPrompt: s.snapshot?.personaPrompt ?? getAnchor(db, s.anchorName).personaPrompt,
     unanswered: s.unanswered,
     messages: msgs.map((m) => ({ seq: m.seq, role: m.role, speaker: m.speaker, text: m.text, time: m.time, repliesTo: m.repliesTo, latencyMs: m.latencyMs, proactive: m.proactive })),
+    history: s.snapshot?.history ?? [],
   };
 }
 

@@ -43,8 +43,9 @@ function outputSection(dims: readonly Dimension[]) {
 export function buildTurnJudgeMessages(session: EvalSession, turnSeq: number, dims: readonly Dimension[], contextSize = JUDGE_CONTEXT_MESSAGES): ChatMessage[] {
   const turn = session.messages.find((m) => m.seq === turnSeq && m.role === 'anchor');
   if (!turn) throw new Error(`没有找到主播发言 #${turnSeq}`);
-  const bySeq = new Map(session.messages.map((m) => [m.seq, m]));
-  const context = session.messages.filter((m) => visible(m) && m.seq < turnSeq).slice(-contextSize);
+  const all = [...(session.history ?? []), ...session.messages];
+  const bySeq = new Map(all.map((m) => [m.seq, m]));
+  const context = all.filter((m) => visible(m) && m.seq < turnSeq).slice(-contextSize);
   const replied = (turn.repliesTo ?? []).map((s) => bySeq.get(s)).filter((m): m is EvalMessage => Boolean(m));
 
   const sections = [
@@ -61,6 +62,22 @@ export function buildTurnJudgeMessages(session: EvalSession, turnSeq: number, di
   ];
 }
 
+/** 续聊场次的前情：用本场记录剩下的预算从尾部往前取，只作参考 */
+function historySection(session: EvalSession, budget: number) {
+  const lines = (session.history ?? []).filter(visible).map((m) => lineOf(m, session.anchorName));
+  if (lines.length === 0) return null;
+  const kept: string[] = [];
+  let used = 0;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    used += lines[i]!.length + 1;
+    if (used > budget) break;
+    kept.unshift(lines[i]!);
+  }
+  const omitted = lines.length - kept.length;
+  const body = (omitted > 0 ? [`（更早的 ${omitted} 条省略）`] : []).concat(kept).join('\n');
+  return `## 续聊前的历史记录（主播记得的前情，只作参考，不评价）\n${body}`;
+}
+
 export function buildSessionJudgeMessages(session: EvalSession, dims: readonly Dimension[], budget = SESSION_TRANSCRIPT_BUDGET): ChatMessage[] {
   const lines = session.messages.filter(visible).map((m) => lineOfWithTime(m, session.anchorName));
   const kept: string[] = [];
@@ -72,9 +89,11 @@ export function buildSessionJudgeMessages(session: EvalSession, dims: readonly D
   }
   const omitted = lines.length - kept.length;
   const transcript = (omitted > 0 ? [`（前面省略 ${omitted} 条，以下为尾部 ${kept.length} 条的片段评分，开头内容不可见）`] : []).concat(kept).join('\n');
+  const history = historySection(session, Math.max(0, budget - used));
   const sections = [
     personaSection(session),
-    `## 整场直播记录\n${transcript}`,
+    ...(history ? [history] : []),
+    `## ${history ? '本场（续聊）直播记录' : '整场直播记录'}\n${transcript}`,
     `## 评分维度（评价整场表现）\n${dimensionSection(dims)}`,
     outputSection(dims),
   ];

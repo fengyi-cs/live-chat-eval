@@ -7,6 +7,7 @@ import {
   SimStateError,
   VirtualClock,
   type AnchorExchange,
+  type EvalMessage,
   type FetchLike,
   type Pace,
   type SimClock,
@@ -66,6 +67,25 @@ export const INTERRUPTED = '服务重启，模拟被中断';
 
 const pad = (n: number, w = 2) => String(n).padStart(w, '0');
 
+/** 把历史记录还原成主播生成用的多轮对话 */
+function exchangesOf(log: readonly EvalMessage[]): AnchorExchange[] {
+  const history: AnchorExchange[] = [];
+  let danmaku: { speaker: string; text: string }[] = [];
+  for (const m of log) {
+    if (m.role === 'viewer' || m.role === 'action') {
+      danmaku.push({ speaker: m.speaker, text: m.text });
+    } else if (m.role === 'anchor' && m.text) {
+      if (danmaku.length > 0) {
+        history.push({ input: { kind: 'danmaku', danmaku }, reply: m.text });
+        danmaku = [];
+      } else if (m.proactive) {
+        history.push({ input: { kind: 'proactive' }, reply: m.text });
+      }
+    }
+  }
+  return history;
+}
+
 /** 本地时间，格式与导入记录一致：2026-10-27T17:54:11 */
 export function localIso(epochMs: number) {
   const d = new Date(epochMs);
@@ -107,7 +127,8 @@ export class SimulationManager {
       script = parsed.events;
     }
 
-    const resumeHistory = input.resumeSessionId ? this.loadResumeHistory(input.resumeSessionId) : [];
+    const resumeLog = input.resumeSessionId ? this.loadResumeLog(input.resumeSessionId) : [];
+    const seqStart = resumeLog.length ? Math.max(...resumeLog.map((m) => m.seq)) + 1 : 0;
 
     const sessionId = randomUUID();
     const startedWall = Date.now();
@@ -129,6 +150,7 @@ export class SimulationManager {
       mode: input.mode,
       pace,
       scriptName: scriptRow?.name ?? null,
+      ...(input.resumeSessionId ? { resumedFrom: input.resumeSessionId, history: resumeLog } : {}),
     };
 
     this.db
@@ -168,7 +190,8 @@ export class SimulationManager {
       strategy: cfg.strategy,
       prompt,
       script,
-      initialHistory: resumeHistory,
+      initialHistory: exchangesOf(resumeLog),
+      seqStart,
       generate: createGenerate(
         configOf(provider),
         { model, temperature: cfg.temperature ?? undefined, maxTokens: cfg.maxTokens ?? undefined },
@@ -179,7 +202,7 @@ export class SimulationManager {
     run = { info, engine, clock, virtual, startedWall, log: [], lastClock: null, partial: null, listeners: new Set() };
     this.runs.set(sessionId, run);
 
-    if (input.resumeSessionId) this.replayResumeLog(run, input.resumeSessionId);
+    this.replayResumeLog(run, resumeLog);
 
     void engine
       .run()
@@ -199,51 +222,31 @@ export class SimulationManager {
     return () => run.listeners.delete(listener);
   }
 
-  private loadResumeHistory(resumeSessionId: string): AnchorExchange[] {
+  /** 续聊来源场次的完整记录：它自己的历史快照加上它的消息，这样多次续聊也能一路接上 */
+  private loadResumeLog(resumeSessionId: string): EvalMessage[] {
+    const prior = this.db.select({ snapshot: sessions.snapshot }).from(sessions).where(eq(sessions.id, resumeSessionId)).get();
+    if (!prior) throw new NotFoundError('要续聊的场次不存在');
     const rows = this.db.select().from(messages).where(eq(messages.sessionId, resumeSessionId)).all().sort((a, b) => a.seq - b.seq);
-    if (rows.length === 0) return [];
-    const history: AnchorExchange[] = [];
-    let currentDanmaku: { speaker: string; text: string }[] = [];
-    let pendingReplyTo: number[] = [];
-    for (const m of rows) {
-      if (m.role === 'viewer' || m.role === 'action') {
-        currentDanmaku.push({ speaker: m.speaker, text: m.text });
-        if (m.seq != null && m.repliesTo) pendingReplyTo = m.repliesTo;
-      } else if (m.role === 'anchor' && m.text) {
-        if (currentDanmaku.length > 0) {
-          history.push({ input: { kind: 'danmaku', danmaku: currentDanmaku }, reply: m.text });
-          currentDanmaku = [];
-          pendingReplyTo = [];
-        } else if (m.proactive) {
-          history.push({ input: { kind: 'proactive' }, reply: m.text });
-        }
-      }
-    }
-    return history;
+    const own = rows.map((m) => ({ seq: m.seq, role: m.role, speaker: m.speaker, text: m.text, time: m.time, repliesTo: m.repliesTo, latencyMs: m.latencyMs, proactive: m.proactive }));
+    return [...(prior.snapshot?.history ?? []), ...own];
   }
 
-  private replayResumeLog(run: Run, resumeSessionId: string) {
-    const rows = this.db.select().from(messages).where(eq(messages.sessionId, resumeSessionId)).all().sort((a, b) => a.seq - b.seq);
-    if (rows.length === 0) return;
-    const startedWall = run.startedWall;
-    for (const m of rows) {
-      const at = 0;
+  private replayResumeLog(run: Run, log: readonly EvalMessage[]) {
+    for (const m of log) {
+      if (m.role === 'ignore') continue;
       const message: SimMessage = {
         seq: m.seq,
-        at,
+        at: 0,
         role: m.role === 'anchor' ? 'anchor' : 'viewer',
         speaker: m.speaker,
         text: m.text,
         repliesTo: m.repliesTo,
         proactive: m.proactive,
         latencyMs: m.latencyMs,
-        firstTokenMs: m.genFirstTokenMs,
-        genTotalMs: m.genTotalMs,
+        firstTokenMs: null,
+        genTotalMs: null,
       };
-      const ev: SimEvent = message.role === 'anchor'
-        ? { type: 'reply', message }
-        : { type: 'danmaku', message };
-      run.log.push(ev);
+      run.log.push(message.role === 'anchor' ? { type: 'reply', message } : { type: 'danmaku', message });
     }
   }
 

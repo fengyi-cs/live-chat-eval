@@ -16,6 +16,8 @@ export interface EvalSession {
   anchorName: string;
   personaPrompt: string;
   messages: EvalMessage[];
+  /** 续聊前的历史记录：只作裁判上下文，不打分、不计入规则分；seq 都小于 messages */
+  history?: EvalMessage[];
   /** 没有被回应的观众弹幕 seq */
   unanswered: number[];
 }

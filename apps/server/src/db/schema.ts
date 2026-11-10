@@ -1,6 +1,7 @@
 import type {
   ActionEvent,
   DimensionScope,
+  EvalMessage,
   EvalItemStatus,
   EvalSummary,
   JudgeScores,
@@ -80,6 +81,10 @@ export interface SessionSnapshot {
   mode: SimMode;
   pace: Pace | null;
   scriptName: string | null;
+  /** 续聊来源场次 */
+  resumedFrom?: string | null;
+  /** 续聊前的历史记录（含更早的续聊链），seq 都小于本场消息；只作评估上下文，不参与打分 */
+  history?: EvalMessage[];
 }
 
 export const scripts = sqliteTable('scripts', {

@@ -14,6 +14,8 @@ export interface EngineOptions {
   generate: Generate;
   script?: readonly ScriptEvent[];
   initialHistory?: readonly AnchorExchange[];
+  /** 第一条新消息的 seq；续聊时接在历史记录之后，保证编号不和历史重复 */
+  seqStart?: number;
   onEvent: (ev: SimEvent) => void;
 }
 
@@ -141,7 +143,7 @@ export class LiveRoomEngine {
     for (const d of skipped) this.skipped.add(d.id);
 
     const message: SimMessage = {
-      seq: this.transcript.length,
+      seq: this.nextSeq(),
       at: doneAt,
       role: 'anchor',
       speaker: prompt.anchorName,
@@ -169,7 +171,7 @@ export class LiveRoomEngine {
 
   private admit(at: number, speaker: string, text: string): SimMessage {
     const message: SimMessage = {
-      seq: this.transcript.length,
+      seq: this.nextSeq(),
       at,
       role: 'viewer',
       speaker,
@@ -185,6 +187,10 @@ export class LiveRoomEngine {
     this.lastActivityAt = Math.max(this.lastActivityAt, at);
     this.opts.onEvent({ type: 'danmaku', message });
     return message;
+  }
+
+  private nextSeq() {
+    return (this.opts.seqStart ?? 0) + this.transcript.length;
   }
 
   private finish(reason: SimEndReason, error: string | null): EngineResult {

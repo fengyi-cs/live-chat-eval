@@ -237,4 +237,50 @@ it('scores each anchor reply while the room is running and finishes the live eva
     expect(Object.keys(detail.rules.turns)).toEqual(['1', '3']);
     expect(detail.items[0]).toMatchObject({ kind: 'turn', seq: 1, text: '回：卡文：晚上好', scores: { colloquial: { score: 4 } } });
   });
+
+  it('resumes a session with unique seqs and gives the judge the earlier history as context', async () => {
+    const prompts: string[] = [];
+    const app = createApp(open().db, {
+      fetch: async (url, init) => {
+        prompts.push(JSON.parse(init!.body as string).messages.map((m: { content: string }) => m.content).join('\n'));
+        return anchorAndJudge(url, init);
+      },
+    });
+    const start = await setup(app);
+    const rubric = await json(send(app, 'POST', '/api/rubrics', { name: '默认评分', rubric: DEFAULT_RUBRIC }));
+
+    const first = await json(send(app, 'POST', '/api/sims', { mode: 'live', ...start }));
+    const s1 = sse(await app.request(`/api/sims/${first.sessionId}/events`));
+    await until(s1, 'hello');
+    await send(app, 'POST', `/api/sims/${first.sessionId}/danmaku`, { speaker: '我', text: '我叫小禾' });
+    await until(s1, 'reply');
+    await send(app, 'POST', `/api/sims/${first.sessionId}/stop`);
+    await until(s1, 'end');
+
+    const resumed = await json(
+      send(app, 'POST', '/api/sims', { mode: 'live', ...start, resumeSessionId: first.sessionId, liveEval: { rubricId: rubric.id, providerId: start.providerId, model: 'm' } }),
+    );
+    const s2 = sse(await app.request(`/api/sims/${resumed.sessionId}/events`));
+    const seen: Ev[] = [];
+    await until(s2, 'hello', seen);
+    const evalEvents = sse(await app.request(`/api/evals/${resumed.evalId}/events`));
+    await until(evalEvents, 'hello');
+    expect((await json(send(app, 'POST', `/api/sims/${resumed.sessionId}/danmaku`, { speaker: '我', text: '我叫什么' }))).seq).toBe(2);
+    // 先收到的是回放的上一场回复 #1，再是本场新回复
+    expect(await until(s2, 'reply', seen)).toMatchObject({ message: { seq: 1, repliesTo: [0] } });
+    expect(await until(s2, 'reply', seen)).toMatchObject({ message: { seq: 3, repliesTo: [2] } });
+    expect(seen.filter((e) => e.type === 'danmaku' || e.type === 'reply').map((e) => e.message.seq)).toEqual([0, 1, 2, 3]);
+    await send(app, 'POST', `/api/sims/${resumed.sessionId}/stop`);
+    await until(s2, 'end');
+    expect(await until(evalEvents, 'end')).toMatchObject({ status: 'done' });
+
+    const detail = await json(app.request(`/api/sessions/${resumed.sessionId}`));
+    expect(detail.messages.map((m: Ev) => m.seq)).toEqual([2, 3]);
+    expect(detail.snapshot).toMatchObject({ resumedFrom: first.sessionId, history: [{ seq: 0, text: '我叫小禾' }, { seq: 1, role: 'anchor' }] });
+    const evalDetail = await json(app.request(`/api/evals/${resumed.evalId}`));
+    expect(evalDetail.items.map((it: Ev) => [it.kind, it.seq])).toEqual([['turn', 3], ['session', null]]);
+    const judgePrompts = prompts.filter((p) => p.startsWith('你是直播内容评审'));
+    expect(judgePrompts).toHaveLength(2);
+    for (const p of judgePrompts) expect(p).toContain('我叫小禾');
+  });
 });
