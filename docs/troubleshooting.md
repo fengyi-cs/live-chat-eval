@@ -136,7 +136,7 @@ docker compose logs app
 ### 数据文件路径
 
 - 原生启动：`data/app.db`（相对项目根目录）
-- Docker：命名卷 `live-chat-eval_lce_data`
+- Docker：命名卷 `lce_data`
 
 ### 健康检查
 
@@ -145,7 +145,7 @@ docker compose logs app
 curl http://localhost:8787/api/health
 
 # Docker
-docker compose exec app curl http://localhost:8787/api/health
+docker compose exec app node -e "fetch('http://127.0.0.1:8787/api/health').then(r=>r.json()).then(d=>console.log(JSON.stringify(d)))"
 ```
 
 返回 `{"status":"ok","version":"0.1.0-rc.1"}` 表示服务正常。

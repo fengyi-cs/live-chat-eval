@@ -46,13 +46,15 @@ docker compose down
 
 ## 配置
 
-复制 `.env.example` 为 `.env`，根据需要修改端口或数据路径：
+复制 `.env.example` 为 `.env`，根据需要修改端口或数据路径（可选）：
 
 ```bash
 cp .env.example .env
 ```
 
 端口和数据路径默认值已可直接使用，不修改也能正常启动。模型服务的 API Key 在应用内的设置页面配置，不在 `.env` 中。
+
+> **原生启动不会自动读取 `.env`**，需在命令前置传入（如 `PORT=9000 node scripts/launcher.mjs`）。Docker Compose 会自动读取 `.env`，但内部端口已固定，宿主机侧用 `APP_PORT` / `APP_HOST` 控制，详见 [deployment.md 配置参数](docs/deployment.md#配置参数)。
 
 ---
 

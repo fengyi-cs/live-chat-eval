@@ -83,10 +83,12 @@ const host = process.env.HOST ?? '127.0.0.1';
 console.log(`\n[launcher] Starting server on http://${host}:${port}\n`);
 
 // 透传所有环境变量，直接执行服务端，子进程绑定到本终端 TTY
+// tsx 是 @lce/server 的 devDependency，需要从 server 包的上下文解析，不能用根目录的 .bin 包装脚本
 const serverEntry = join(ROOT, 'apps', 'server', 'src', 'main.ts');
-const tsx = join(ROOT, 'node_modules', '.bin', 'tsx');
+const serverRequire = createRequire(join(ROOT, 'apps', 'server', 'package.json'));
+const tsxCli = serverRequire.resolve('tsx/dist/cli.mjs');
 
-const child = spawn(process.execPath, [tsx, serverEntry], {
+const child = spawn(process.execPath, [tsxCli, serverEntry], {
   cwd: ROOT,
   stdio: 'inherit',
   env: { ...process.env },

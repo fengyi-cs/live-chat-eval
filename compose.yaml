@@ -1,7 +1,5 @@
 # live-chat-eval Docker Compose 配置
 # 用法：docker compose up --build
-version: '3.9'
-
 services:
   app:
     build:
@@ -11,17 +9,15 @@ services:
     container_name: lce-app
     restart: unless-stopped
     ports:
-      # 默认只绑定到宿主机 127.0.0.1，外部机器无法访问
-      - "127.0.0.1:8787:8787"
+      # APP_HOST / APP_PORT 控制宿主机侧绑定地址和端口（默认仅本机访问）
+      # 若需局域网访问：APP_HOST=0.0.0.0 docker compose up
+      - "${APP_HOST:-127.0.0.1}:${APP_PORT:-8787}:8787"
     volumes:
       # 持久化数据卷（SQLite 数据库）
       - lce_data:/app/data
-    environment:
-      - PORT=8787
-      - HOST=0.0.0.0
-      - LCE_DB_PATH=/app/data/app.db
     env_file:
-      - .env
+      - path: .env
+        required: false
     extra_hosts:
       # Linux 用户访问宿主机本地服务（Ollama / CCH）时使用 host.docker.internal
       - "host.docker.internal:host-gateway"
