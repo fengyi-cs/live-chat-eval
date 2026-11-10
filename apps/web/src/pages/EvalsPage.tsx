@@ -12,6 +12,7 @@ import { usePersistentState } from '../usePersistentState.ts';
 
 const STATUS: Record<EvalDetail['status'], string> = { running: '评估中', done: '已完成', stopped: '已停止', error: '出错' };
 const fmt = fmtScore;
+const fmt1 = (n: number | null | undefined) => (n === null || n === undefined ? '—' : n.toFixed(1));
 const tone = (n: number | null) => (n === null ? 'text-neutral-400' : n >= 80 ? 'text-emerald-600' : n >= 60 ? 'text-amber-600' : 'text-red-600');
 
 function Bar({ value }: { value: number | null }) {
@@ -81,18 +82,23 @@ function StartPanel({ onStarted }: { onStarted: (id: string) => void }) {
     <section className={`${card} space-y-3`}>
       <h2 className="text-sm font-medium">发起评估</h2>
       <div className="space-y-1">
-        <span className={fieldLabel}>会话</span>
+        <span className={fieldLabel}>场次</span>
         <Select value={session?.id ?? undefined} onValueChange={(v) => setSessionId(v)}>
-          <SelectTrigger className="h-8 w-full text-sm"><SelectValue placeholder="请选择会话" /></SelectTrigger>
+          <SelectTrigger className="h-8 w-full text-sm"><SelectValue placeholder="请选择场次" /></SelectTrigger>
           <SelectContent>
-            {done.length === 0 && <SelectItem value="__none" disabled>还没有会话</SelectItem>}
+            {done.length === 0 && <SelectItem value="__none" disabled>还没有场次</SelectItem>}
             {done.map((s) => (
               <SelectItem key={s.id} value={s.id}>
-                {s.anchorName} · {s.title ?? s.externalId ?? s.id.slice(0, 8)} · {s.messageCount} 条
+                <span className="truncate">{s.anchorName} · {s.title ?? s.externalId ?? s.id.slice(0, 8)}</span>
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
+        {session && (
+          <p className="text-xs text-neutral-500">
+            {session.messageCount} 条消息 · 主播发言 {session.anchorCount} 条{session.startedAt ? ` · ${session.startedAt.replace('T', ' ').slice(0, 16)}` : ''}
+          </p>
+        )}
       </div>
       <div className="space-y-1">
         <span className={fieldLabel}>评分标准</span>
@@ -112,7 +118,7 @@ function StartPanel({ onStarted }: { onStarted: (id: string) => void }) {
             {missingJudge && <p className="text-xs text-amber-600">此评分标准包含模型评分维度，请选择裁判模型</p>}
           </>
         ) : (
-          <p className="text-xs text-neutral-400">此评分标准仅含规则评分，无需裁判模型</p>
+          <p className="text-xs text-neutral-500">此评分标准仅含规则评分，无需裁判模型</p>
         )}
       </div>
       <div className="grid grid-cols-2 gap-2">
@@ -268,8 +274,8 @@ function Report({ id, onDeleted }: { id: string; onDeleted: () => void }) {
               <div className="p-3">
                 <div className={`text-2xl font-bold tabular-nums ${
                   s.llmFullyFailed && label === '综合指数' ? 'text-amber-600' : tone(v)
-                }`}>{fmt(v)}</div>
-                <div className="mt-0.5 text-xs text-neutral-500">{label}{s.llmFullyFailed && label === '综合指数' ? ' · 仅规则' : ''}</div>
+                }`}>{fmt(v)}<span className="text-xs font-normal text-neutral-500">/100</span></div>
+                <div className="mt-0.5 text-xs text-neutral-500" title={v === null ? undefined : `精确值 ${v.toFixed(1)}`}>{label}{s.llmFullyFailed && label === '综合指数' ? ' · 仅规则' : ''}</div>
               </div>
             </div>
           ))}
@@ -288,7 +294,7 @@ function Report({ id, onDeleted }: { id: string; onDeleted: () => void }) {
                 <span>
                   {dim.name} <span className="text-xs text-neutral-500">{dim.scope === 'session' ? '整场' : '逐条'} · 权重 {dim.weight}</span>
                 </span>
-                <span className={tone(dim.score100)}>{fmt(dim.score100)}</span>
+                <span className={`tabular-nums ${tone(dim.score100)}`}>{fmt1(dim.score100)}</span>
               </div>
               <Bar value={dim.score100} />
             </div>
@@ -303,7 +309,7 @@ function Report({ id, onDeleted }: { id: string; onDeleted: () => void }) {
               <div key={k} className="space-y-1 text-sm">
                 <div className="flex justify-between">
                   <span>{RULE_LABELS[k]}</span>
-                  <span className={tone(m.score)}>{fmt(m.score)}</span>
+                  <span className={`tabular-nums ${tone(m.score)}`}>{fmt1(m.score)}</span>
                 </div>
                 <Bar value={m.score} />
               </div>
@@ -383,17 +389,20 @@ export function EvalsPage() {
   const list = useQuery({ queryKey: ['evals'], queryFn: () => api.evals() });
   const [selected, setSelected] = usePersistentState<string | null>('lce.selectedEval', null);
   const active = list.data?.find((e) => e.id === selected) ?? list.data?.[0] ?? null;
+  // 手机端：发起/列表 与 报告正文分屏显示，桌面保持双栏
+  const [mobileView, setMobileView] = useState<'list' | 'report'>('list');
+  const openReport = (id: string) => { setSelected(id); setMobileView('report'); };
   return (
     <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
-      <aside className="space-y-4">
-        <StartPanel onStarted={setSelected} />
+      <aside className={`space-y-4 ${mobileView === 'report' ? 'hidden lg:block' : ''}`}>
+        <StartPanel onStarted={openReport} />
         <section className={`${card} space-y-1`}>
           <h2 className="mb-1 text-sm font-medium">评估报告</h2>
           {list.data?.length === 0 && <p className="text-sm text-neutral-500">还没有评估</p>}
           <ul className="space-y-1">
             {list.data?.map((e) => (
               <li key={e.id}>
-                <button type="button" className={listItem(e.id === active?.id)} onClick={() => setSelected(e.id)}>
+                <button type="button" className={listItem(e.id === active?.id)} onClick={() => openReport(e.id)}>
                   <ScorePill score={e.composite} className="mr-2" />
                   {e.anchorName}
                   <span className="ml-2 text-xs text-neutral-500">
@@ -405,7 +414,10 @@ export function EvalsPage() {
           </ul>
         </section>
       </aside>
-      <main>{active ? <Report key={active.id} id={active.id} onDeleted={() => setSelected(null)} /> : <div className={emptyState}>选一场会话和评分标准，开始评估</div>}</main>
+      <main className={`min-w-0 ${mobileView === 'list' ? 'hidden lg:block' : ''}`}>
+        <button type="button" className={`${secondaryBtn} mb-3 lg:hidden`} onClick={() => setMobileView('list')}>← 返回评估列表</button>
+        {active ? <Report key={active.id} id={active.id} onDeleted={() => { setSelected(null); setMobileView('list'); }} /> : <div className={emptyState}>选一个场次和评分标准，开始评估</div>}
+      </main>
     </div>
   );
 }
