@@ -7,6 +7,25 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../components/ui/s
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select.tsx';
 import { input, primaryBtn, secondaryBtn } from '../ui.ts';
 
+const FORMAT_EXAMPLE = `# 小鹿 聊天记录
+
+- 场次 ID：9001
+- 主播：小鹿（B001）
+- 开始时间：2026/01/05 20:00:00
+
+### 2026/01/05 20:00:12｜路人甲
+
+主播晚上好
+
+### 2026/01/05 20:00:15｜小鹿
+
+晚上好呀，刚开播你就来了。
+
+### 2026/01/05 20:00:16｜小鹿
+
+（动作）朝镜头挥了挥手
+`;
+
 const ROLE_LABELS: Record<SpeakerRole, string> = {
   anchor: '主播（被评估方）',
   viewer: '观众（弹幕发送者）',
@@ -199,8 +218,20 @@ export function ImportSheet({ open, onOpenChange, onImported }: Props) {
         </SheetHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-4">
           <p className="text-xs text-neutral-500">
-            支持 .md 格式聊天记录，可一次选择多份，逐份确认角色后导入。导入后可查看对话或发起评估。
+            支持 .md 格式聊天记录，可一次选择多份，逐份确认角色后导入。导入后可查看对话或发起评估，不需要配置主播回复模型。
           </p>
+          <details className="rounded-lg border border-neutral-200 px-3 py-2 text-xs text-neutral-600 dark:border-neutral-800 dark:text-neutral-400">
+            <summary className="cursor-pointer font-medium">查看格式示例</summary>
+            <p className="mt-2">每条消息以「### 日期 时间｜发言人」开头，下一行是内容；以「（动作）」开头的内容记为动作。头部元信息可选。</p>
+            <pre className="mt-2 overflow-x-auto rounded bg-neutral-100 p-2 font-mono text-[11px] leading-relaxed dark:bg-neutral-800">{FORMAT_EXAMPLE}</pre>
+            <a
+              className="mt-2 inline-block text-indigo-600 hover:underline dark:text-indigo-400"
+              href={`data:text/markdown;charset=utf-8,${encodeURIComponent(FORMAT_EXAMPLE)}`}
+              download="聊天记录示例.md"
+            >
+              下载示例文件
+            </a>
+          </details>
 
           <label
             className="block cursor-pointer rounded-lg border border-dashed border-neutral-300 px-3 py-6 text-center text-sm text-neutral-500 hover:border-neutral-500 dark:border-neutral-700"
