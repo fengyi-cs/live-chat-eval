@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router';
 import { api } from '../api.ts';
 import { SOURCE_LABELS, STATUS_LABELS, STATUS_TONE } from '../labels.ts';
 import { usePersistentState } from '../usePersistentState.ts';
-import { card, emptyState, listItem, secondaryBtn } from '../ui.ts';
+import { card, emptyState, input, listItem, secondaryBtn } from '../ui.ts';
 import { SessionView } from './SessionView.tsx';
 import { ImportSheet } from './ImportSheet.tsx';
 import { useState } from 'react';
@@ -23,11 +23,19 @@ export function SessionsPage() {
     ? sessionParam
     : selectedExists ? selected : null;
 
-  const list = sessions.data ?? [];
+  const [query, setQuery] = useState('');
+  const all = sessions.data ?? [];
+  const q = query.trim().toLowerCase();
+  const list = q
+    ? all.filter((s) => [s.anchorName, s.title, s.externalId].some((v) => v?.toLowerCase().includes(q)))
+    : all;
+  // 手机端：列表与详情分屏显示；URL 带 session 参数时直接进详情
+  const [mobileView, setMobileView] = useState<'list' | 'detail'>(sessionParam ? 'detail' : 'list');
+  const select = (id: string) => { setSelected(id); setMobileView('detail'); };
 
   return (
     <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-      <aside className={`${card} space-y-2 self-start`}>
+      <aside className={`${card} min-w-0 space-y-2 self-start ${mobileView === 'detail' ? 'hidden lg:block' : ''}`}>
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium">场次库</h2>
           <button
@@ -39,9 +47,19 @@ export function SessionsPage() {
             导入
           </button>
         </div>
+        {all.length > 0 && (
+          <input
+            type="search"
+            className={`${input} py-1 text-xs`}
+            placeholder="搜索主播、标题或场次号…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        )}
         {sessions.isPending && <p className="text-sm text-neutral-500">加载中…</p>}
         {sessions.error && <p className="text-sm text-red-600">{sessions.error.message}</p>}
-        {list.length === 0 && !sessions.isPending && (
+        {q && list.length === 0 && <p className="text-xs text-neutral-500">没有匹配的场次</p>}
+        {all.length === 0 && !sessions.isPending && (
           <div className={emptyState}>
             <p>还没有场次</p>
             <p className="mt-1 text-xs">在直播间跑一场模拟，或者导入聊天记录</p>
@@ -52,7 +70,7 @@ export function SessionsPage() {
             <li key={s.id}>
               <button
                 type="button"
-                onClick={() => setSelected(s.id)}
+                onClick={() => select(s.id)}
                 className={listItem(s.id === activeId)}
               >
                 <span className="flex items-center gap-1.5">
@@ -64,6 +82,7 @@ export function SessionsPage() {
                   )}
                 </span>
                 <span className="text-xs text-neutral-500">
+                  {s.title ? <span className="block truncate">{s.title}</span> : null}
                   {s.externalId ? `场次 ${s.externalId}` : SOURCE_LABELS[s.source]} · {s.messageCount} 条
                 </span>
                 {s.startedAt && (
@@ -75,7 +94,8 @@ export function SessionsPage() {
         </ul>
       </aside>
 
-      <main>
+      <main className={`min-w-0 ${mobileView === 'list' ? 'hidden lg:block' : ''}`}>
+        <button type="button" className={`${secondaryBtn} mb-3 lg:hidden`} onClick={() => setMobileView('list')}>← 返回场次列表</button>
         {activeId ? (
           <SessionView
             id={activeId}
@@ -85,7 +105,7 @@ export function SessionsPage() {
             }}
           />
         ) : (
-          <div className={emptyState}>选择左侧场次查看详情</div>
+          <div className={emptyState}>选择一个场次查看详情</div>
         )}
       </main>
 
@@ -93,7 +113,7 @@ export function SessionsPage() {
         open={importOpen}
         onOpenChange={setImportOpen}
         onImported={(sessionId) => {
-          setSelected(sessionId);
+          select(sessionId);
           setImportOpen(false);
           qc.invalidateQueries({ queryKey: ['sessions'] });
         }}
