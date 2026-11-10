@@ -1,4 +1,4 @@
-import { RULE_KEYS, RULE_LABELS, turnLlmScore } from '@lce/core';
+import { appliesTo, RULE_KEYS, RULE_LABELS, turnLlmScore } from '@lce/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
@@ -66,13 +66,16 @@ function StartPanel({ onStarted }: { onStarted: (id: string) => void }) {
 
   const needsJudge = rubric?.rubric.dimensions.some((d) => d.enabled) ?? false;
   const missingJudge = needsJudge && (!judgeChoice.providerId || !judgeChoice.model);
-  // S22: 预计调用量
-  const anchorCount = session?.messageCount ?? 0; // 暂用总消息数作为指标
-  const enabledDims = rubric?.rubric.dimensions.filter((d) => d.enabled).length ?? 0;
-  const hasSessionDim = rubric?.rubric.dimensions.some((d) => d.enabled && d.scope === 'session') ?? false;
-  const estCalls = needsJudge && session
-    ? (anchorCount * enabledDims + (hasSessionDim ? 1 : 0)) * samples
-    : 0;
+  // 预计调用量：同一条发言的所有适用维度合并在一次请求里，按待评分主播发言数 + 整场 1 次、再乘采样次数计算
+  const dims = rubric?.rubric.dimensions ?? [];
+  const judgesReply = dims.some((d) => appliesTo(d, { kind: 'turn', proactive: false }));
+  const judgesProactive = dims.some((d) => appliesTo(d, { kind: 'turn', proactive: true }));
+  const hasSessionDim = dims.some((d) => appliesTo(d, { kind: 'session', proactive: false }));
+  const proactiveCount = session?.proactiveCount ?? 0;
+  const judgedTurns = (judgesReply ? (session?.anchorCount ?? 0) - proactiveCount : 0) + (judgesProactive ? proactiveCount : 0);
+  const estRequests = judgedTurns + (hasSessionDim && (session?.anchorCount ?? 0) > 0 ? 1 : 0);
+  const estCalls = needsJudge && session ? estRequests * samples : 0;
+  const JUDGE_ATTEMPTS = 3; // 与服务端默认重试次数一致
 
   return (
     <section className={`${card} space-y-3`}>
@@ -128,7 +131,9 @@ function StartPanel({ onStarted }: { onStarted: (id: string) => void }) {
         </div>
       </div>
       {needsJudge && estCalls > 0 && (
-        <p className="text-xs text-neutral-500">预计 LLM 调用：{estCalls} 次（最多 {estCalls * 3} 次含重试）</p>
+        <p className="text-xs text-neutral-500">
+          预计 LLM 调用：{estCalls} 次（{judgedTurns} 条主播发言{estRequests > judgedTurns ? ' + 1 次整场' : ''}{samples > 1 ? `，每条 ×${samples}` : ''}）；解析失败重试时最多 {estCalls * JUDGE_ATTEMPTS} 次
+        </p>
       )}
       <button type="button" className={`${primaryBtn} w-full`} disabled={!session || !rubric || start.isPending || missingJudge} onClick={() => start.mutate()}>
         开始评估

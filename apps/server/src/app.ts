@@ -1,6 +1,6 @@
 import { ProviderError, SPEAKER_ROLES, TranscriptParseError, type FetchLike } from '@lce/core';
 import { zValidator } from '@hono/zod-validator';
-import { asc, count, desc, eq } from 'drizzle-orm';
+import { asc, count, desc, eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Db } from './db/client.ts';
@@ -65,6 +65,8 @@ export function createApp(db: Db, deps: AppDeps = {}) {
           startedAt: sessions.startedAt,
           endedAt: sessions.endedAt,
           messageCount: count(messages.id),
+          anchorCount: sql<number>`coalesce(sum(case when ${messages.role} = 'anchor' then 1 else 0 end), 0)`,
+          proactiveCount: sql<number>`coalesce(sum(case when ${messages.role} = 'anchor' and ${messages.proactive} = 1 then 1 else 0 end), 0)`,
         })
         .from(sessions)
         .leftJoin(messages, eq(messages.sessionId, sessions.id))

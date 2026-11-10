@@ -42,6 +42,9 @@ export interface SessionSummary {
   startedAt: string | null;
   endedAt: string | null;
   messageCount: number;
+  /** 主播发言数（其中主动发言 proactiveCount 条），用于预估裁判调用量 */
+  anchorCount: number;
+  proactiveCount: number;
 }
 
 export interface StoredMessage {
