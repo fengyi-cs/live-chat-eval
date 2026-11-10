@@ -18,6 +18,10 @@ services:
     env_file:
       - path: .env
         required: false
+    environment:
+      PORT: "8787"
+      HOST: "0.0.0.0"
+      LCE_DB_PATH: /app/data/app.db
     extra_hosts:
       # Linux 用户访问宿主机本地服务（Ollama / CCH）时使用 host.docker.internal
       - "host.docker.internal:host-gateway"

@@ -86,7 +86,7 @@ console.log(`\n[launcher] Starting server on http://${host}:${port}\n`);
 // tsx 是 @lce/server 的 devDependency，需要从 server 包的上下文解析，不能用根目录的 .bin 包装脚本
 const serverEntry = join(ROOT, 'apps', 'server', 'src', 'main.ts');
 const serverRequire = createRequire(join(ROOT, 'apps', 'server', 'package.json'));
-const tsxCli = serverRequire.resolve('tsx/dist/cli.mjs');
+const tsxCli = serverRequire.resolve('tsx/cli');
 
 const child = spawn(process.execPath, [tsxCli, serverEntry], {
   cwd: ROOT,
