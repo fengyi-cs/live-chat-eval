@@ -89,7 +89,7 @@ function planTurn(rubric: Rubric, seq: number, proactive: boolean, canJudge: boo
 
 function loadSession(db: Db, sessionId: string, allowRunning = false): EvalSession {
   const s = db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
-  if (!s) throw new NotFoundError('会话不存在');
+  if (!s) throw new NotFoundError('场次不存在');
   if (s.status === 'running' && !allowRunning) throw new BadRequestError('这场直播还在进行，结束后再评估，或在开播时打开实时评估');
   const msgs = db.select().from(messages).where(eq(messages.sessionId, sessionId)).orderBy(asc(messages.seq)).all();
   return {
@@ -238,7 +238,7 @@ export class EvalManager {
 
   private assertIdle(sessionId: string) {
     if (this.db.select({ id: evals.id }).from(evals).where(and(eq(evals.sessionId, sessionId), eq(evals.status, 'running'))).get()) {
-      throw new ConflictError('这场会话已经有评估在进行');
+      throw new ConflictError('这个场次已经有评估在进行');
     }
   }
 

@@ -121,7 +121,7 @@ export function SessionView({ id, onDeleted }: { id: string; onDeleted: () => vo
           )}
           <button
             type="button"
-            onClick={() => confirm('删除这个会话？') && remove.mutate()}
+            onClick={() => confirm('删除这个场次？') && remove.mutate()}
             className={`${secondaryBtn} text-red-600`}
           >
             删除

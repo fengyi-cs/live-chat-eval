@@ -26,6 +26,8 @@ export function ScorePill({ score, label, onClick, expanded, pending, className 
       <button
         type="button"
         onClick={onClick}
+        aria-expanded={expanded}
+        aria-label={pending ? '评估中' : `${label ?? `综合评分 ${fmtScore(score)}/100`}${expanded === undefined ? '' : expanded ? '，收起详情' : '，展开详情'}`}
         className={`rounded-full px-1.5 py-0.5 text-xs font-medium tabular-nums transition-colors ${tone} cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-current/40 ${className}`}
       >
         {display}{expanded !== undefined ? (expanded ? ' ▲' : ' ▼') : ''}

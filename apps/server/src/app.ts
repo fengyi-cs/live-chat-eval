@@ -78,7 +78,7 @@ export function createApp(db: Db, deps: AppDeps = {}) {
     .get('/sessions/:id', (c) => {
       const id = c.req.param('id');
       const session = db.select().from(sessions).where(eq(sessions.id, id)).get();
-      if (!session) return c.json({ error: '会话不存在' }, 404);
+      if (!session) return c.json({ error: '场次不存在' }, 404);
       const msgs = db.select().from(messages).where(eq(messages.sessionId, id)).orderBy(asc(messages.seq)).all();
       return c.json({ ...session, messages: msgs });
     })
@@ -86,7 +86,7 @@ export function createApp(db: Db, deps: AppDeps = {}) {
       sims.stopIfRunning(c.req.param('id'));
       evalManager.stopForSession(c.req.param('id'));
       const res = db.delete(sessions).where(eq(sessions.id, c.req.param('id'))).run();
-      return res.changes ? c.body(null, 204) : c.json({ error: '会话不存在' }, 404);
+      return res.changes ? c.body(null, 204) : c.json({ error: '场次不存在' }, 404);
     });
 
   const app = new Hono().route('/api', api);

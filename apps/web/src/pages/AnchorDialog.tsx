@@ -150,7 +150,7 @@ function AnchorView({ name, onDeleted, onDirtyChange }: { name: string; onDelete
             {a.name}
             <SourceBadge source={a.source} />
           </h3>
-          <p className="text-xs text-neutral-500">{a.sessionCount} 个会话</p>
+          <p className="text-xs text-neutral-500">{a.sessionCount} 个场次</p>
         </div>
         <form className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); saveCode.mutate(codeDraft); }}>
           <input className={`${input} w-32`} value={codeDraft} onChange={(e) => setCode(e.target.value)}
@@ -225,7 +225,7 @@ export function AnchorDialog({ open, onOpenChange, selectedAnchor, onAnchorChang
                     {a.code && <span className="text-xs text-neutral-500">{a.code}</span>}
                     <SourceBadge source={a.source} />
                   </span>
-                  <span className="text-xs text-neutral-500">{a.sessionCount} 会话</span>
+                  <span className="text-xs text-neutral-500">{a.sessionCount} 场次</span>
                 </button>
               </li>
             ))}

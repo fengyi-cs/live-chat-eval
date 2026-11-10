@@ -95,7 +95,7 @@ export function updateAnchor(db: Db, name: string, input: Omit<Partial<AnchorInp
 export function deleteAnchor(db: Db, name: string) {
   getAnchor(db, name);
   const sessionCount = sessionCountOf(db, name);
-  if (sessionCount > 0) throw new ConflictError(`主播「${name}」还有 ${sessionCount} 个会话，先删除这些会话再删除主播`);
+  if (sessionCount > 0) throw new ConflictError(`主播「${name}」还有 ${sessionCount} 个场次，先删除这些场次再删除主播`);
   db.delete(anchors).where(eq(anchors.name, name)).run();
 }
 
