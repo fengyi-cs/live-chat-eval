@@ -17,7 +17,7 @@ interface IconAction {
   disabled?: boolean;
 }
 
-function RoomIcon({ icon, label, shortLabel, onClick, active, badge, disabled, pressed }: IconAction & { badge?: boolean; pressed?: boolean; shortLabel?: string }) {
+function RoomIcon({ icon, label, shortLabel, onClick, active, badge, disabled, pressed }: IconAction & { badge?: string | null; pressed?: boolean; shortLabel?: string }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -35,7 +35,7 @@ function RoomIcon({ icon, label, shortLabel, onClick, active, badge, disabled, p
         >
           {icon}
           {shortLabel && <span className="text-[10px] leading-none">{shortLabel}</span>}
-          {badge && <span className="absolute right-0.5 top-0.5 size-2 rounded-full bg-emerald-500" />}
+          {badge && <span className={`absolute right-0.5 top-0.5 size-2 rounded-full ${badge}`} />}
         </button>
       </TooltipTrigger>
       <TooltipContent side="left">{label}</TooltipContent>
@@ -43,15 +43,33 @@ function RoomIcon({ icon, label, shortLabel, onClick, active, badge, disabled, p
   );
 }
 
+/** 实时评估开关状态：关闭 / 已开启但缺评分标准或裁判 / 已就绪 */
+export type LiveEvalStatus = 'off' | 'pending' | 'ready';
+
+const LIVE_EVAL_LABELS: Record<LiveEvalStatus, string> = {
+  off: '实时评估：关闭（点击开启）',
+  pending: '实时评估：待配置，缺评分标准或裁判模型（点击关闭）',
+  ready: '实时评估：已就绪（点击关闭）',
+};
+
+/** 徽标颜色：评分任务进行中优先显示，其次是开关状态 */
+function liveEvalBadge(status: LiveEvalStatus, evalRunning: boolean): string | null {
+  if (evalRunning) return 'bg-indigo-500 animate-pulse';
+  if (status === 'pending') return 'bg-amber-500';
+  if (status === 'ready') return 'bg-emerald-500';
+  return null;
+}
+
 export interface RoomIconsProps {
   activeSheet: string | null;
   onOpenSheet: (sheet: string | null) => void;
   evalRunning?: boolean;
-  liveEvalEnabled?: boolean;
+  liveEvalStatus?: LiveEvalStatus;
   onToggleLiveEval?: () => void;
 }
 
-export function LeftIcons({ activeSheet, onOpenSheet, evalRunning, liveEvalEnabled, onToggleLiveEval }: RoomIconsProps) {
+export function LeftIcons({ activeSheet, onOpenSheet, evalRunning = false, liveEvalStatus = 'off', onToggleLiveEval }: RoomIconsProps) {
+  const liveEvalEnabled = liveEvalStatus !== 'off';
   const actions = [
     { icon: <BookOpenIcon className="size-5" />, label: '弹幕剧本', sheet: 'script', enabled: true, shortLabel: '剧本' },
   ];
@@ -70,12 +88,12 @@ export function LeftIcons({ activeSheet, onOpenSheet, evalRunning, liveEvalEnabl
       ))}
       <RoomIcon
         icon={<TargetIcon className="size-5" />}
-        label={liveEvalEnabled ? '实时评估：开启（点击关闭）' : '实时评估：关闭（点击开启）'}
+        label={evalRunning ? `${LIVE_EVAL_LABELS[liveEvalStatus]} · 评分进行中` : LIVE_EVAL_LABELS[liveEvalStatus]}
         shortLabel="评估"
         onClick={onToggleLiveEval ?? (() => {})}
-        active={!!liveEvalEnabled}
-        pressed={!!liveEvalEnabled}
-        badge={evalRunning || liveEvalEnabled}
+        active={liveEvalEnabled}
+        pressed={liveEvalEnabled}
+        badge={liveEvalBadge(liveEvalStatus, evalRunning)}
       />
     </div>
   );
@@ -104,7 +122,9 @@ export function RightIcons({ activeSheet, onOpenSheet }: RoomIconsProps) {
   );
 }
 
-export function MobileIconBar({ activeSheet, onOpenSheet, evalRunning, liveEvalEnabled, onToggleLiveEval }: RoomIconsProps) {
+export function MobileIconBar({ activeSheet, onOpenSheet, evalRunning = false, liveEvalStatus = 'off', onToggleLiveEval }: RoomIconsProps) {
+  const liveEvalEnabled = liveEvalStatus !== 'off';
+  const badge = liveEvalBadge(liveEvalStatus, evalRunning);
   const all = [
     { icon: <BookOpenIcon className="size-5" />, label: '弹幕剧本', sheet: 'script', enabled: true },
     { icon: <TargetIcon className="size-5" />, label: '实时评估', sheet: 'eval', enabled: true, special: true },
@@ -124,7 +144,8 @@ export function MobileIconBar({ activeSheet, onOpenSheet, evalRunning, liveEvalE
             if ('special' in a && a.special) { onToggleLiveEval?.(); return; }
             a.enabled && onOpenSheet(activeSheet === a.sheet ? null : a.sheet);
           }}
-          aria-label={a.enabled ? a.label : `${a.label}（即将支持）`}
+          aria-label={'special' in a && a.special ? LIVE_EVAL_LABELS[liveEvalStatus] : a.enabled ? a.label : `${a.label}（即将支持）`}
+          aria-pressed={'special' in a && a.special ? liveEvalEnabled : undefined}
           title={a.enabled ? undefined : '即将支持'}
           className={`relative flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
             ('special' in a && a.special && liveEvalEnabled) || activeSheet === a.sheet
@@ -133,8 +154,8 @@ export function MobileIconBar({ activeSheet, onOpenSheet, evalRunning, liveEvalE
           }`}
         >
           {a.icon}
-          {'special' in a && a.special && liveEvalEnabled && (
-            <span className="absolute right-1 top-1 size-2 rounded-full bg-emerald-500" />
+          {'special' in a && a.special && badge && (
+            <span className={`absolute right-1 top-1 size-2 rounded-full ${badge}`} />
           )}
           <span>{a.label}</span>
         </button>

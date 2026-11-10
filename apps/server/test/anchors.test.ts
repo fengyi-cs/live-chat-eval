@@ -49,7 +49,7 @@ describe('anchor api', () => {
 
     const blocked = await send(app, 'DELETE', anchorPath('小鹿'));
     expect(blocked.status).toBe(409);
-    expect((await blocked.json()).error).toContain('1 个会话');
+    expect((await blocked.json()).error).toContain('1 个场次');
     expect((await send(app, 'DELETE', anchorPath('阿灵'))).status).toBe(204);
     expect((await send(app, 'GET', anchorPath('阿灵'))).status).toBe(404);
   });

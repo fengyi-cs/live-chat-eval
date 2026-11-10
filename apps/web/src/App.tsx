@@ -1,5 +1,5 @@
 import { Navigate, NavLink, Route, Routes } from 'react-router';
-import { ActivityIcon } from 'lucide-react';
+import { ActivityIcon, CircleHelpIcon } from 'lucide-react';
 import { EvalsPage } from './pages/EvalsPage.tsx';
 import { ProvidersPage } from './pages/ProvidersPage.tsx';
 import { RubricsPage } from './pages/RubricsPage.tsx';
@@ -38,7 +38,11 @@ export function App() {
           <div className="flex items-center gap-2">
             <ActivityIcon className="size-5 text-indigo-500" aria-hidden />
             <h1 className="text-base font-semibold tracking-tight">live-chat-eval</h1>
-            <span className="ml-1 hidden text-xs text-neutral-400 sm:inline">直播间 AI 主播对话评估</span>
+            <span className="ml-1 hidden text-xs text-neutral-500 sm:inline">直播间 AI 主播对话评估</span>
+            <NavLink to="/?tour=1" className="ml-auto flex items-center gap-1 rounded-md px-2 py-1 text-xs text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800 dark:hover:bg-neutral-800 dark:hover:text-neutral-200">
+              <CircleHelpIcon className="size-3.5" aria-hidden />
+              帮助
+            </NavLink>
           </div>
           <nav className="mt-2 -mx-4 flex gap-1 overflow-x-auto px-4 [scrollbar-width:none]" aria-label="主导航">
             {NAV.map((n) => (

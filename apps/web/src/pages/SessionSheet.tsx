@@ -30,7 +30,7 @@ export function SessionSheet({ open, onOpenChange, onSelect }: Props) {
             {sessions.isPending && <p className="text-sm text-neutral-500">加载中…</p>}
             {sessions.error && <p className="text-sm text-red-600">{sessions.error.message}</p>}
             {sessions.data?.length === 0 && !sessions.isPending && (
-              <p className="text-sm text-neutral-500">还没有会话。导入一份聊天记录，或在直播间跑一场模拟。</p>
+              <p className="text-sm text-neutral-500">还没有场次。导入一份聊天记录，或在直播间跑一场模拟。</p>
             )}
             <ul className="space-y-1">
               {sessions.data?.map((s) => (
@@ -69,7 +69,7 @@ export function SessionSheet({ open, onOpenChange, onSelect }: Props) {
                 <SessionView id={activeId} onDeleted={() => setSelected(null)} />
               </>
             ) : (
-              <p className="text-sm text-neutral-500">选择左侧的会话查看对话与配对结果</p>
+              <p className="text-sm text-neutral-500">选择一个场次查看对话与配对结果</p>
             )}
           </div>
         </div>

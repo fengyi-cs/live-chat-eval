@@ -48,7 +48,7 @@ export function simRoutes(db: Db, manager: SimulationManager) {
     .get('/:id/events', (c) => {
       const id = c.req.param('id');
       if (!manager.has(id) && !db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get()) {
-        return c.json({ error: '会话不存在' }, 404);
+        return c.json({ error: '场次不存在' }, 404);
       }
       return streamSSE(c, async (stream) => {
         const queue: RoomEvent[] = [];

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useReducer, useState } from 'react';
-import { api, type AnchorConfigSummary, type RunInfo } from '../api.ts';
+import { useNavigate } from 'react-router';
+import { api, type AnchorConfigSummary, type Provider, type RunInfo } from '../api.ts';
 import { primaryBtn, secondaryBtn, card, input } from '../ui.ts';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select.tsx';
 import { usePersistentState } from '../usePersistentState.ts';
@@ -23,8 +24,7 @@ import { SessionSheet } from './SessionSheet.tsx';
 import { ConfigSheet } from './ConfigSheet.tsx';
 import { AnchorDialog } from './AnchorDialog.tsx';
 import { ModelPicker } from '../components/ModelPicker.tsx';
-import { GuidedTour } from '../components/GuidedTour.tsx';
-import { HintBubble } from '../components/HintBubble.tsx';
+import { GuidedTour, type TourPath } from '../components/GuidedTour.tsx';
 
 function ActiveSession({
   sessionId,
@@ -63,6 +63,7 @@ function ActiveSession({
   }, [room.ended, room.gone, queryClient, sessionId]);
 
   const stopMut = useMutation({ mutationFn: () => api.stopSim(sessionId) });
+  const navigate = useNavigate();
 
   if (room.gone && !room.ended) return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -111,7 +112,8 @@ function ActiveSession({
       )}
       {room.ended && !room.gone && (
         <div className="flex items-center justify-center gap-2 border-t border-neutral-200 px-3 py-2 dark:border-neutral-800">
-          <span className="text-sm text-neutral-500 mr-auto">模拟已结束</span>
+          <span className="mr-auto text-sm text-neutral-600 dark:text-neutral-400">{room.info?.evalId ? '模拟已结束，实时评估结果可在评估分析查看' : '模拟已结束，尚未评分'}</span>
+          <button type="button" className={primaryBtn} onClick={() => navigate(`/evals?session=${sessionId}`)}>评估本场</button>
           <button type="button" className={secondaryBtn} onClick={() => onOpenSheet('sessions')}>查看场次</button>
           <button type="button" className={secondaryBtn} onClick={() => onClosed()}>新建一场</button>
         </div>
@@ -145,11 +147,20 @@ export function LiveRoom() {
   const [liveEvalJudge, setLiveEvalJudge] = usePersistentState<{ providerId: string | null; model: string | null }>('lce.room.liveEvalJudge', { providerId: null, model: null });
 
   const rubrics = useQuery({ queryKey: ['rubrics'], queryFn: api.rubrics });
-  const effectiveLiveEval = liveEvalEnabled && liveEvalRubricId && liveEvalJudge.providerId && liveEvalJudge.model
-    ? { rubricId: liveEvalRubricId, providerId: liveEvalJudge.providerId, model: liveEvalJudge.model }
-    : liveEvalEnabled && liveEvalRubricId
-      ? { rubricId: liveEvalRubricId }
-      : undefined;
+  const selectedRubric = rubrics.data?.find((r) => r.id === liveEvalRubricId) ?? null;
+  const liveEvalNeedsJudge = selectedRubric?.rubric.dimensions.some((d) => d.enabled) ?? false;
+  const liveEvalJudgeReady = liveEvalJudge.providerId && liveEvalJudge.model;
+  const liveEvalMissingJudge = liveEvalNeedsJudge && !liveEvalJudgeReady;
+  const liveEvalReady = liveEvalEnabled && liveEvalRubricId && (!liveEvalNeedsJudge || liveEvalJudgeReady);
+  const effectiveLiveEval = liveEvalReady && liveEvalRubricId
+    ? liveEvalNeedsJudge
+      ? { rubricId: liveEvalRubricId, providerId: liveEvalJudge.providerId ?? undefined, model: liveEvalJudge.model ?? undefined }
+      : { rubricId: liveEvalRubricId }
+    : undefined;
+  const liveEvalStatus = !liveEvalEnabled ? 'off' : liveEvalReady ? 'ready' : 'pending';
+  const liveEvalBlockedReason = liveEvalEnabled && liveEvalMissingJudge
+    ? '实时评估需要裁判模型：请在「实时评估配置」中选择，或关闭实时评估'
+    : null;
 
   useEffect(() => {
     const handler = () => setActiveSheet('config');
@@ -163,6 +174,8 @@ export function LiveRoom() {
   const anchors = useQuery({ queryKey: ['anchors'], queryFn: api.anchors });
   const configs = useQuery({ queryKey: ['allConfigs'], queryFn: api.allConfigs });
   const sims = useQuery({ queryKey: ['sims'], queryFn: api.sims });
+  const providers = useQuery({ queryKey: ['providers'], queryFn: api.providers });
+  const navigate = useNavigate();
 
   const effectiveAnchor = anchorName ?? anchors.data?.[0]?.name ?? null;
   const effectiveConfig = configId ?? configs.data?.find((c) => c.modelAvailable)?.id ?? null;
@@ -204,12 +217,18 @@ export function LiveRoom() {
 
   const handleOpenSheet = (sheet: string | null) => setActiveSheet(sheet);
 
+  const handleTourChoice = (path: TourPath) => {
+    if (path === 'import') setActiveSheet('import');
+    else if (!configs.data?.some((c) => c.modelAvailable)) navigate('/settings');
+  };
+
   const handleSendDanmaku = async (speaker: string, text: string): Promise<void> => {
     if (!active) {
       if (!effectiveAnchor || !effectiveConfig) {
         handleOpenSheet(effectiveAnchor ? 'config' : 'anchors');
         throw new Error('请先选择主播和回复配置');
       }
+      if (liveEvalBlockedReason) throw new Error(liveEvalBlockedReason);
       setBooting(true);
       try {
         const info = await api.startSim({ mode: 'live', anchorName: effectiveAnchor, configId: effectiveConfig, liveEval: effectiveLiveEval });
@@ -229,7 +248,7 @@ export function LiveRoom() {
   return (
     <div className="flex h-[calc(100vh-7rem)] flex-col">
       <div className="flex min-h-0 flex-1 gap-1">
-      <LeftIcons activeSheet={activeSheet} onOpenSheet={handleOpenSheet} evalRunning={evalRunning} liveEvalEnabled={liveEvalEnabled} onToggleLiveEval={() => setLiveEvalEnabled(!liveEvalEnabled)} />
+      <LeftIcons activeSheet={activeSheet} onOpenSheet={handleOpenSheet} evalRunning={evalRunning} liveEvalStatus={liveEvalStatus} onToggleLiveEval={() => setLiveEvalEnabled(!liveEvalEnabled)} />
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
         {active ? (
@@ -255,12 +274,14 @@ export function LiveRoom() {
             />
             <ChatAreaEmpty
               anchorName={anchorName}
-              configId={configId}
+              configId={effectiveConfig}
               configs={configs.data}
+              providers={providers.data}
               onSend={handleSendDanmaku}
               onOpenScript={() => handleOpenSheet('script')}
               onOpenAnchors={() => handleOpenSheet('anchors')}
               onOpenConfig={() => handleOpenSheet('config')}
+              onOpenImport={() => handleOpenSheet('import')}
             />
           </>
         )}
@@ -293,17 +314,22 @@ export function LiveRoom() {
               </Select>
             </label>
             <div className="space-y-1">
-              <span className="text-xs text-neutral-500">裁判模型（可选，仅含规则评分时留空）</span>
-              <ModelPicker value={liveEvalJudge} onChange={setLiveEvalJudge} placeholder="使用规则评分，无需模型" />
+              <span className="text-xs text-neutral-500">
+                裁判模型{liveEvalNeedsJudge ? '' : '（可选，仅含规则评分时留空）'}
+              </span>
+              <ModelPicker value={liveEvalJudge} onChange={setLiveEvalJudge} placeholder={liveEvalNeedsJudge ? '请选择裁判模型' : '此标准无需裁判模型'} />
             </div>
           </div>
           {liveEvalEnabled && !liveEvalRubricId && (
             <p className="text-xs text-amber-700 dark:text-amber-400">⚠️ 实时评估已开启但尚未选择评分标准，开播后将不会评分</p>
           )}
+          {liveEvalMissingJudge && (
+            <p className="text-xs text-red-600 dark:text-red-400">⚠️ 当前评分标准包含 LLM 评分维度，开播前必须选择裁判模型</p>
+          )}
         </div>
       )}
 
-      <MobileIconBar activeSheet={activeSheet} onOpenSheet={handleOpenSheet} evalRunning={evalRunning} liveEvalEnabled={liveEvalEnabled} onToggleLiveEval={() => setLiveEvalEnabled(!liveEvalEnabled)} />
+      <MobileIconBar activeSheet={activeSheet} onOpenSheet={handleOpenSheet} evalRunning={evalRunning} liveEvalStatus={liveEvalStatus} onToggleLiveEval={() => setLiveEvalEnabled(!liveEvalEnabled)} />
 
       <ScriptSheet
         open={activeSheet === 'script'}
@@ -312,6 +338,7 @@ export function LiveRoom() {
         configId={effectiveConfig}
         paceKey={paceKey}
         liveEval={effectiveLiveEval}
+        blockedReason={liveEvalBlockedReason}
         onStartScript={handleStarted}
       />
 
@@ -339,7 +366,7 @@ export function LiveRoom() {
         onAnchorChange={handleAnchorChange}
       />
 
-      <GuidedTour />
+      <GuidedTour onChoose={handleTourChoice} />
     </div>
   );
 }
@@ -348,82 +375,89 @@ function ChatAreaEmpty({
   anchorName,
   configId,
   configs,
+  providers,
   onSend,
   onOpenScript,
   onOpenAnchors,
   onOpenConfig,
+  onOpenImport,
 }: {
   anchorName: string | null;
   configId: string | null;
   configs: AnchorConfigSummary[] | undefined;
+  providers: Provider[] | undefined;
   onSend: (speaker: string, text: string) => Promise<void>;
   onOpenScript: () => void;
   onOpenAnchors: () => void;
   onOpenConfig: () => void;
+  onOpenImport: () => void;
 }) {
-  const selectedConfig = configs?.find((c) => c.id === configId);
+  const navigate = useNavigate();
+  const selectedConfig = configs?.find((c) => c.id === configId) ?? configs?.[0];
+  const hasProvider = (providers?.length ?? 0) > 0;
+  const hasPoolModel = providers?.some((p) => p.enabledModels.length > 0) ?? false;
   const configReady = Boolean(selectedConfig?.modelAvailable);
-  const ready = anchorName && configReady;
+  const ready = Boolean(anchorName) && configReady;
+
+  const modelStep = !hasProvider
+    ? { desc: '添加模型服务后才能生成回复', action: <button type="button" className={secondaryBtn} onClick={() => navigate('/settings')}>添加模型服务</button> }
+    : !hasPoolModel
+      ? { desc: '选择至少一个模型加入模型池（可供主播和裁判选择的模型）', action: <button type="button" className={secondaryBtn} onClick={() => navigate('/settings')}>管理模型</button> }
+      : !configReady
+        ? { desc: `为回复配置「${selectedConfig?.name ?? '默认'}」选择一个模型`, action: <button type="button" className={secondaryBtn} onClick={onOpenConfig}>选择回复模型</button> }
+        : { desc: `${selectedConfig?.name ?? '已配置'} · ${selectedConfig?.model ?? ''}`, action: null };
+
   const steps = [
     {
       done: Boolean(anchorName),
-      label: '选择主播',
-      desc: anchorName ?? '尚未选择',
-      action: !anchorName ? (
-        <button type="button" className={secondaryBtn} onClick={onOpenAnchors}>新建主播</button>
-      ) : null,
+      label: '主播',
+      desc: anchorName ?? '还没有主播',
+      action: !anchorName ? <button type="button" className={secondaryBtn} onClick={onOpenAnchors}>新建主播</button> : null,
     },
-    {
-      done: configReady,
-      label: '回复方案',
-      desc: configReady
-        ? (selectedConfig?.name ?? '已配置')
-        : configId
-          ? '回复方案未配置模型 — 请前往设置'
-          : '尚未选择回复方案',
-      action: !configReady ? (
-        <button type="button" className={secondaryBtn} onClick={onOpenConfig}>配置回复</button>
-      ) : null,
-    },
+    { done: configReady, label: '回复模型', ...modelStep },
     {
       done: false,
-      label: '开始测试',
-      desc: ready ? '发一条弹幕开始，或加载剧本' : '完成上面两步后可开始',
-      action: ready ? (
-        <button type="button" className={secondaryBtn} onClick={onOpenScript}>加载剧本</button>
-      ) : null,
+      label: '开始模拟',
+      desc: ready ? '发送第一条弹幕即可开始，或运行示例剧本' : '完成上面的步骤后可开始',
+      action: ready ? <button type="button" className={secondaryBtn} onClick={onOpenScript}>运行剧本</button> : null,
     },
   ];
+  const currentIndex = steps.findIndex((s) => !s.done);
 
   return (
     <>
-      <div className="flex flex-1 items-center justify-center px-4">
+      <div className="flex flex-1 items-center justify-center overflow-y-auto px-4 py-4">
         <div className="w-full max-w-sm space-y-3">
-          <HintBubble
-            storageKey="lce.hint.checklist"
-            title="准备清单"
-            tone="tip"
-          >
-            按顺序完成三步就能开播。已预置了示例主播「小鹿」和默认回复配置，你只需到设置页添加模型。
-          </HintBubble>
-          <p className="text-xs font-medium text-neutral-500">开始测试前</p>
-          {steps.map((step, i) => (
-            <div key={step.label} className={`flex items-start gap-3 rounded-lg border p-3 ${
-              step.done ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30'
-                : i === steps.findIndex((s) => !s.done)
-                  ? 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30'
-                  : 'border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800/30'
-            }`}>
-              <span className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                step.done ? 'bg-emerald-500 text-white' : 'bg-neutral-300 text-neutral-600 dark:bg-neutral-600 dark:text-neutral-300'
-              }`}>{step.done ? '✓' : i + 1}</span>
-              <div className="flex-1">
-                <p className="text-sm font-medium">{step.label}</p>
-                <p className="text-xs text-neutral-500">{step.desc}</p>
-              </div>
-              {step.action}
-            </div>
-          ))}
+          {ready ? (
+            <p className="text-sm text-neutral-600 dark:text-neutral-400">
+              <span className="font-medium text-neutral-900 dark:text-neutral-100">{anchorName}</span> · {selectedConfig?.name}，发一条弹幕开始模拟。
+            </p>
+          ) : (
+            <>
+              <p className="text-xs font-medium text-neutral-600 dark:text-neutral-400">模拟 AI 主播前还差这些</p>
+              {steps.map((step, i) => (
+                <div key={step.label} className={`flex items-start gap-3 rounded-lg border p-3 ${
+                  step.done ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30'
+                    : i === currentIndex
+                      ? 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30'
+                      : 'border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800/30'
+                }`}>
+                  <span className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                    step.done ? 'bg-emerald-500 text-white' : 'bg-neutral-300 text-neutral-600 dark:bg-neutral-600 dark:text-neutral-300'
+                  }`}>{step.done ? '✓' : i + 1}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">{step.label}</p>
+                    <p className="text-xs text-neutral-600 dark:text-neutral-400">{step.desc}</p>
+                  </div>
+                  {step.action}
+                </div>
+              ))}
+            </>
+          )}
+          <div className="flex items-center gap-2 rounded-lg border border-dashed border-neutral-300 p-3 text-xs text-neutral-600 dark:border-neutral-700 dark:text-neutral-400">
+            <span className="flex-1">只想评估真人聊天记录？导入后直接评分，不需要回复模型。</span>
+            <button type="button" className={secondaryBtn} onClick={onOpenImport}>导入记录</button>
+          </div>
         </div>
       </div>
       <DanmakuInput

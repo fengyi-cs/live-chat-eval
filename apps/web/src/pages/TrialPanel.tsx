@@ -82,7 +82,7 @@ export function TrialPanel({ config }: { config: AnchorConfigSummary }) {
     <section className={`${card} space-y-3`}>
       <div className="flex flex-wrap items-center gap-2">
         <div className="mr-auto">
-          <h3 className="text-sm font-medium">回复方案预览</h3>
+          <h3 className="text-sm font-medium">回复配置预览</h3>
           <p className="text-xs text-neutral-400">使用选定主播人设测试回复效果，不创建场次记录</p>
         </div>
         <Select value={anchorName ?? ''} onValueChange={(v) => setAnchorPick(v)}>

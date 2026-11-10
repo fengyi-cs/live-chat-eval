@@ -104,7 +104,7 @@ function ConfigEditor({ config, onDirtyChange }: { config: AnchorConfigSummary; 
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="sticky top-0 z-10 -mx-4 flex flex-wrap items-center gap-2 border-b border-neutral-200 bg-background px-4 py-2 dark:border-neutral-800">
         <h3 className="mr-auto text-sm font-semibold">编辑回复配置</h3>
         {dirty && <span className="text-xs text-amber-600">有未保存的修改</span>}
         <button type="submit" form="config-form" className={primaryBtn} disabled={!dirty || !draft.name.trim() || save.isPending}>
@@ -115,7 +115,7 @@ function ConfigEditor({ config, onDirtyChange }: { config: AnchorConfigSummary; 
           删除
         </button>
         <button type="button" className={secondaryBtn} onClick={() => setShowTrial((v) => !v)}>
-          {showTrial ? '收起预览' : '预览回复方案 →'}
+          {showTrial ? '收起预览' : '预览回复效果 →'}
         </button>
       </div>
       {save.error && <p className="text-xs text-red-600">{save.error.message}</p>}
@@ -139,8 +139,8 @@ function ConfigEditor({ config, onDirtyChange }: { config: AnchorConfigSummary; 
             <Field label="温度" hint="0 严谨、2 发散。留空使用模型默认值">
               <NumberInput value={draft.temperature} onChange={(v) => set({ temperature: v })} min={0} max={2} step={0.1} nullable placeholder="默认" />
             </Field>
-            <Field label="最大输出 tokens" hint="留空不设上限，使用服务端默认">
-              <NumberInput value={draft.maxTokens} onChange={(v) => set({ maxTokens: v })} min={1} max={64000} integer nullable placeholder="不限制" />
+            <Field label="最大输出 tokens" hint="留空使用服务端默认值">
+              <NumberInput value={draft.maxTokens} onChange={(v) => set({ maxTokens: v })} min={1} max={64000} integer nullable placeholder="服务端默认" />
             </Field>
             <Field label="上下文轮数" hint="带上最近几轮对话作为上下文，0 表示不带">
               <NumberInput value={draft.contextTurns} onChange={(v) => v !== null && set({ contextTurns: v })} min={0} max={200} integer />
@@ -268,6 +268,13 @@ export function ConfigSheet({ open, onOpenChange }: Props) {
   const list = configs.data ?? [];
   const config = list.find((c) => c.id === selected) ?? list[0] ?? null;
 
+  const guardedSwitch = (newId: string) => {
+    if (newId === config?.id) return;
+    if (isDirtyRef.current && !confirm('有未保存的修改，放弃并切换配置？')) return;
+    isDirtyRef.current = false;
+    setSelected(newId);
+  };
+
   const guardedOpenChange = (v: boolean) => {
     if (!v && isDirtyRef.current && !confirm('有未保存的修改，确定放弃？')) return;
     isDirtyRef.current = false;
@@ -285,7 +292,7 @@ export function ConfigSheet({ open, onOpenChange }: Props) {
             <div className="flex flex-wrap gap-1" role="tablist" aria-label="回复配置">
               {list.map((c) => (
                 <button key={c.id} type="button" role="tab" aria-selected={c.id === config?.id}
-                  onClick={() => setSelected(c.id)}
+                  onClick={() => guardedSwitch(c.id)}
                   className={`rounded-full border px-3 py-1 text-sm transition-colors ${
                     c.id === config?.id
                       ? 'border-indigo-500 bg-indigo-500 text-white'
@@ -297,7 +304,11 @@ export function ConfigSheet({ open, onOpenChange }: Props) {
               ))}
             </div>
             <button type="button" className={secondaryBtn} disabled={add.isPending}
-              onClick={() => add.mutate(list.map((c) => c.name))}>
+              onClick={() => {
+                if (isDirtyRef.current && !confirm('有未保存的修改，放弃并新增配置？')) return;
+                isDirtyRef.current = false;
+                add.mutate(list.map((c) => c.name));
+              }}>
               + 新增配置
             </button>
           </div>

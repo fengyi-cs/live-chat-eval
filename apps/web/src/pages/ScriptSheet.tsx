@@ -550,10 +550,12 @@ interface Props {
   configId: string | null;
   paceKey: PaceKey;
   liveEval?: { rubricId: string; providerId?: string; model?: string };
+  /** 开播前置条件未满足时的原因（如实时评估缺裁判），非空时禁止开始模拟 */
+  blockedReason?: string | null;
   onStartScript: (info: RunInfo) => void;
 }
 
-export function ScriptSheet({ open, onOpenChange, anchorName, configId, paceKey, liveEval, onStartScript }: Props) {
+export function ScriptSheet({ open, onOpenChange, anchorName, configId, paceKey, liveEval, blockedReason, onStartScript }: Props) {
   const queryClient = useQueryClient();
   const scripts = useQuery({ queryKey: ['scripts'], queryFn: api.scripts });
   const [selected, setSelected] = usePersistentState<string | null>('lce.room.script', null);
@@ -570,6 +572,7 @@ export function ScriptSheet({ open, onOpenChange, anchorName, configId, paceKey,
   const startScript = useMutation({
     mutationFn: (scriptId: string) => {
       if (!anchorName || !configId) throw new Error('请先选择主播和回复配置');
+      if (blockedReason) throw new Error(blockedReason);
       return api.startSim({ mode: 'script', anchorName, configId, scriptId, pace: paceOf(paceKey), liveEval } as StartSim);
     },
     onSuccess: (info) => {
@@ -616,7 +619,7 @@ export function ScriptSheet({ open, onOpenChange, anchorName, configId, paceKey,
                     <button
                       type="button"
                       className={primaryBtn}
-                      disabled={s.eventCount === 0 || s.issueCount > 0 || startScript.isPending || !anchorName || !configId}
+                      disabled={s.eventCount === 0 || s.issueCount > 0 || startScript.isPending || !anchorName || !configId || Boolean(blockedReason)}
                       onClick={() => startScript.mutate(s.id)}
                     >
                       {startScript.isPending ? '启动中…' : '▶ 开始模拟'}
@@ -628,6 +631,7 @@ export function ScriptSheet({ open, onOpenChange, anchorName, configId, paceKey,
               {(!anchorName || !configId) && (
                 <p className="text-xs text-amber-600">请先在主播管理和回复配置中完成设置，才能开始模拟。</p>
               )}
+              {blockedReason && <p className="text-xs text-red-600">{blockedReason}</p>}
             </>
           ) : (
             <>

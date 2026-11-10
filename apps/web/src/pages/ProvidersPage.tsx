@@ -91,12 +91,13 @@ function ProviderForm({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="auto">自动识别（保存后依次尝试各种格式，用拉到模型的那一种）</SelectItem>
+            <SelectItem value="auto">自动识别（推荐）</SelectItem>
             {PROVIDER_KINDS.map((k) => (
               <SelectItem key={k} value={k}>{PROVIDER_KIND_LABELS[k]}</SelectItem>
             ))}
           </SelectContent>
         </Select>
+        {kind === 'auto' && <span className="block text-xs text-neutral-500">保存后依次尝试各种接口格式，使用能拉到模型列表的那一种</span>}
       </label>
       <label className="block space-y-1 text-sm">
         <span className="text-xs text-neutral-500">API Key{provider?.apiKeyMasked && `（当前 ${provider.apiKeyMasked}，留空则不修改）`}</span>
@@ -235,7 +236,13 @@ function PingPongTest({ provider }: { provider: Provider }) {
           ) : (
             <>
               <p className="font-medium text-red-700 dark:text-red-300">✗ 连接失败</p>
-              <p className="mt-1 whitespace-pre-wrap text-red-600 dark:text-red-400">{result.error}</p>
+              <p className="mt-1 text-red-600 dark:text-red-400">{result.error.split('\n')[0]!.slice(0, 160)}</p>
+              {(result.error.includes('\n') || result.error.length > 160) && (
+                <details className="mt-1 text-xs text-neutral-600 dark:text-neutral-400">
+                  <summary className="cursor-pointer">查看原始错误</summary>
+                  <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all">{result.error}</pre>
+                </details>
+              )}
               <p className="mt-1 text-xs text-neutral-500">{result.model}</p>
             </>
           )}
@@ -519,10 +526,10 @@ export function ProvidersPage() {
                 <button type="button" className={primaryBtn} onClick={() => setEditing('new')}>新增服务商</button>
               }
             >
-              添加一个模型服务商（如 DeepSeek、OpenAI），填入接口地址和 API Key，保存后会自动拉取可用模型。这是开始使用前唯一需要手动配置的步骤。
+              添加一个模型服务商（如 DeepSeek、OpenAI），填入接口地址和 API Key，保存后会自动拉取可用模型。之后把要用的模型加入模型池，再到直播间的「回复配置」里选择模型。只评估导入的真人记录时，只需准备裁判模型。
             </HintBubble>
             <div className="rounded-lg border border-dashed border-neutral-300 p-10 text-center text-sm text-neutral-500 dark:border-neutral-700">
-              新增一个服务商，填好地址和 Key，保存后会自动拉取模型；勾选要用的模型加入模型池
+              新增一个服务商，填好地址和 Key，保存后会自动拉取模型；勾选要用的模型加入模型池（可供主播和裁判选择的模型）
             </div>
           </>
         )}
