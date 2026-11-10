@@ -43,6 +43,9 @@ export function ImportSheet({ open, onOpenChange, onImported }: Props) {
   const [judgeChoice, setJudgeChoice] = useState<{ providerId: string | null; model: string | null }>({ providerId: null, model: null });
   const [evalError, setEvalError] = useState<string | null>(null);
   const [importedSessionId, setImportedSessionId] = useState<string | null>(null);
+  /** 多选时排队的后续文件：逐份预览、分配角色和处理重复场次 */
+  const [queue, setQueue] = useState<File[]>([]);
+  const [doneCount, setDoneCount] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const effectiveRubricId = rubricId ?? rubrics.data?.[0]?.id ?? null;
@@ -82,6 +85,7 @@ export function ImportSheet({ open, onOpenChange, onImported }: Props) {
       setContent('');
       setFileName('');
       setImportedSessionId(sessionId);
+      setDoneCount((n) => n + 1);
     },
   });
 
@@ -90,15 +94,30 @@ export function ImportSheet({ open, onOpenChange, onImported }: Props) {
     const text = await file.text();
     setFileName(file.name);
     setContent(text);
+    setPreview(null);
     commitMut.reset();
     setImportedSessionId(null);
     setEvalError(null);
     previewMut.mutate(text);
   };
 
+  const onFiles = (list: FileList | null | undefined) => {
+    const files = [...(list ?? [])];
+    if (files.length === 0) return;
+    setQueue(files.slice(1));
+    setDoneCount(0);
+    void onFile(files[0]);
+  };
+
+  const nextFile = () => {
+    const [next, ...rest] = queue;
+    setQueue(rest);
+    void onFile(next);
+  };
+
   const onDrop = (e: React.DragEvent<HTMLLabelElement>) => {
     e.preventDefault();
-    void onFile(e.dataTransfer.files?.[0]);
+    onFiles(e.dataTransfer.files);
   };
 
   const anchorCount = Object.values(roles).filter((r) => r === 'anchor').length;
@@ -114,7 +133,7 @@ export function ImportSheet({ open, onOpenChange, onImported }: Props) {
             <SheetTitle>导入历史聊天记录</SheetTitle>
           </SheetHeader>
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-4 pb-4 text-center">
-            <p className="text-base font-medium text-emerald-600">导入成功</p>
+            <p className="text-base font-medium text-emerald-600">导入成功{doneCount > 1 && `（本批已导入 ${doneCount} 份）`}</p>
             {evalError ? (
               <p className="text-sm text-red-600">评估启动失败：{evalError}</p>
             ) : withEval ? (
@@ -149,16 +168,22 @@ export function ImportSheet({ open, onOpenChange, onImported }: Props) {
                   重试评估
                 </button>
               )}
-              <button
-                type="button"
-                className={secondaryBtn}
-                onClick={() => {
-                  setImportedSessionId(null);
-                  setEvalError(null);
-                }}
-              >
-                继续导入
-              </button>
+              {queue.length > 0 ? (
+                <button type="button" className={secondaryBtn} onClick={nextFile}>
+                  导入下一份（剩 {queue.length} 份）
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className={secondaryBtn}
+                  onClick={() => {
+                    setImportedSessionId(null);
+                    setEvalError(null);
+                  }}
+                >
+                  继续导入
+                </button>
+              )}
             </div>
           </div>
         </SheetContent>
@@ -174,7 +199,7 @@ export function ImportSheet({ open, onOpenChange, onImported }: Props) {
         </SheetHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-4">
           <p className="text-xs text-neutral-500">
-            支持 .md 格式聊天记录，导入后可查看对话或发起评估。
+            支持 .md 格式聊天记录，可一次选择多份，逐份确认角色后导入。导入后可查看对话或发起评估。
           </p>
 
           <label
@@ -182,18 +207,24 @@ export function ImportSheet({ open, onOpenChange, onImported }: Props) {
             onDragOver={(e) => e.preventDefault()}
             onDrop={onDrop}
           >
-            {fileName || '拖拽或点击选择 .md 聊天记录文件'}
+            {fileName ? `${fileName}${queue.length ? `（后面还有 ${queue.length} 份）` : ''}` : '拖拽或点击选择 .md 聊天记录文件（可多选）'}
             <input
               ref={fileInputRef}
               type="file"
+              multiple
               accept=".md,.markdown,.txt"
               className="hidden"
-              onChange={(e) => { void onFile(e.target.files?.[0]); e.currentTarget.value = ''; }}
+              onChange={(e) => { onFiles(e.target.files); e.currentTarget.value = ''; }}
             />
           </label>
 
           {previewMut.isPending && <p className="text-sm text-neutral-500">解析中…</p>}
           {error && <p className="text-sm text-red-600">{error.message}</p>}
+          {queue.length > 0 && (previewMut.isError || preview) && (
+            <button type="button" className={`${secondaryBtn} w-full`} disabled={commitMut.isPending} onClick={nextFile}>
+              跳过这份，处理下一份（剩 {queue.length} 份）
+            </button>
+          )}
 
           {preview && (
             <div className="space-y-3 text-sm">
