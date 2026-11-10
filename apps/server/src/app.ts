@@ -34,7 +34,7 @@ export function createApp(db: Db, deps: AppDeps = {}) {
     .route('/sims', simRoutes(db, sims))
     .route('/rubrics', rubricRoutes(db))
     .route('/evals', evalRoutes(db, evalManager))
-    .get('/health', (c) => c.json({ ok: true }))
+    .get('/health', (c) => c.json({ status: 'ok', version: '0.1.0-rc.1' }))
     .post('/imports/preview', zValidator('json', z.object({ content: contentSchema })), (c) =>
       c.json(previewImport(db, c.req.valid('json').content)),
     )

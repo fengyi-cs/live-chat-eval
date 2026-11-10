@@ -1,0 +1,37 @@
+# Docker 构建上下文排除项
+
+# 本地数据与敏感文件
+data/
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.*
+!.env.example
+
+# 真实聊天记录（根目录 *-chat.md 与 raw/ 目录）
+*-chat.md
+/raw/
+
+# 依赖与构建缓存（每次在容器里重新安装）
+node_modules/
+dist/
+*.tsbuildinfo
+.vite/
+coverage/
+
+# Git 元数据
+.git/
+.gitignore
+
+# IDE 与编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# 其他
+*.log
+npm-debug.log*
+pnpm-debug.log*

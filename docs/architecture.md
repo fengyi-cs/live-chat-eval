@@ -10,10 +10,8 @@
 | 后端 | Node + Hono；SSE 推送模型流式输出、直播间事件、评估进度 |
 | 存储 | SQLite（better-sqlite3）+ Drizzle ORM，默认 `data/app.db`（`LCE_DB_PATH` 可改） |
 | 校验 | zod（API 入参、评分模板） |
-| 前端 | React + Vite + Tailwind；服务端数据用 TanStack Query，页面状态用 `usePersistentState`（localStorage） |
+| 前端 | React + Vite + Tailwind CSS v4；shadcn/ui（17 个组件）；dnd-kit（剧本拖排）；TanStack Query（服务端数据）；react-router v8（URL 路由）；页面本地状态用 `usePersistentState`（localStorage） |
 | 测试 | Vitest |
-
-最初计划的 shadcn/ui、Zustand、Recharts 没有引入：现有页面用不到，分数条用纯 CSS。
 
 ## 目录
 
@@ -24,7 +22,16 @@ live-chat-eval/
 │  │  ├─ db/          # schema 与连接；迁移在 apps/server/drizzle（drizzle-kit 生成）
 │  │  ├─ services/    # 业务逻辑：imports / providers / anchors / scripts / sims / rubrics / evals
 │  │  └─ routes/      # Hono 路由，薄封装 services
-│  └─ web/src/pages/  # 聊天记录 / 直播间 / 弹幕剧本 / 评估 / 评分模板 / 主播 / 模型服务
+│  └─ web/src/
+│     ├─ components/  # 通用组件：ModelPicker、ScorePill、GuidedTour、HintBubble
+│     │  └─ ui/       # shadcn/ui 组件（badge、button、checkbox、command、dialog、
+│     │               #   dropdown-menu、input、label、popover、scroll-area、select、
+│     │               #   separator、sheet、switch、tabs、textarea、tooltip）
+│     └─ pages/       # 页面组件（LiveRoom、EvalsPage、RubricsPage、ProvidersPage）
+│                     # 及对话框/表单（AnchorDialog、ConfigEditor、ConfigSheet、
+│                     #   ImportSheet、ScriptSheet、SessionSheet、SessionView、
+│                     #   SessionsPage、TrialPanel、MessageBubble）
+│                     # 直播间子组件（room/）
 ├─ packages/core/src/ # 纯逻辑，不读写数据库
 │  ├─ importers/      # md 聊天记录解析、角色推荐
 │  ├─ pairing/        # 回复配对、延迟、主动发言、动作挂接
@@ -32,7 +39,8 @@ live-chat-eval/
 │  ├─ anchor/         # 回复策略决策、主播提示词组装
 │  ├─ runtime/        # 剧本解析、虚拟/真实时钟、直播间模拟引擎、模型选弹幕
 │  └─ eval/           # 评分模板、规则基础分、裁判提示词与解析重试、汇总
-├─ fixtures/          # 脱敏样例
+├─ fixtures/          # 脱敏样例聊天记录
+├─ scripts/           # 交付脚本（launcher、doctor、smoke）
 └─ docs/
 ```
 

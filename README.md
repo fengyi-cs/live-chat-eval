@@ -1,40 +1,98 @@
 # live-chat-eval
 
-直播间 AI 主播对话评估框架。需求见 [docs/requirements.md](docs/requirements.md)，架构见 [docs/architecture.md](docs/architecture.md)，开发工作流见 [docs/workflow.md](docs/workflow.md)。
+直播间 AI 主播对话评估框架。导入或实时模拟直播对话，对主播回复做规则评分与 LLM 裁判评分，生成综合报告。
 
-## 启动
+版本：v0.1.0-rc.1 · [使用指南](docs/guide.md) · [部署说明](docs/deployment.md) · [故障排查](docs/troubleshooting.md)
 
-需要 Node >= 22 和 pnpm。
+---
+
+## 快速开始
+
+### 方式一：本地 Node 启动（推荐技术用户）
+
+需要 [Node.js >= 22 LTS](https://nodejs.org/) 和网络（首次安装依赖时）。
 
 ```bash
-pnpm install
-pnpm start        # 构建前端并启动，打开 http://127.0.0.1:8787
+# 克隆仓库后，在项目根目录运行
+node scripts/launcher.mjs
 ```
 
-开发模式（前端热更新，http://localhost:5173）：
+脚本会自动检测环境、安装 pnpm 和依赖、构建前端、启动服务，并打印访问地址。
+
+环境诊断：
 
 ```bash
-pnpm dev
+node scripts/doctor.mjs
 ```
 
-本地状态保存在 `data/app.db`（不进 git）。可用 `LCE_DB_PATH`、`PORT`、`HOST` 环境变量覆盖。
+### 方式二：Docker Compose（推荐非 Node 用户 / 隔离环境）
+
+需要 [Docker Desktop](https://www.docker.com/products/docker-desktop/)（Windows / macOS）或 Docker Engine + Compose（Linux）。
+
+```bash
+# 首次启动（需要构建镜像，约 2-5 分钟）
+docker compose up --build
+
+# 之后启动
+docker compose up -d
+
+# 停止
+docker compose down
+```
+
+启动后打开：**http://localhost:8787**
+
+---
+
+## 配置
+
+复制 `.env.example` 为 `.env`，根据需要修改端口或数据路径：
+
+```bash
+cp .env.example .env
+```
+
+端口和数据路径默认值已可直接使用，不修改也能正常启动。模型服务的 API Key 在应用内的设置页面配置，不在 `.env` 中。
+
+---
+
+## 数据
+
+- 本地数据存储在 `data/app.db`（原生启动）或 Docker 命名卷 `lce_data`（Compose 启动）
+- 首次启动自动建表并写入预设主播、配置和剧本
+- 升级前请先备份 `data/` 目录，详见 [部署说明 · 升级与备份](docs/deployment.md#升级与备份)
+
+---
 
 ## 检查
 
 ```bash
-pnpm test
-pnpm typecheck
+pnpm test        # 单元测试
+pnpm typecheck   # 类型检查
 ```
 
-## 当前进度
+---
 
-- [x] md 聊天记录导入：解析发言人、选择角色、主播档案按名字识别、场次去重
+## 文档
+
+| 文档 | 说明 |
+|------|------|
+| [docs/guide.md](docs/guide.md) | 首次使用、两条主要任务路径 |
+| [docs/deployment.md](docs/deployment.md) | Docker、原生安装、配置、升级、备份 |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | 常见问题与诊断 |
+| [docs/validation.md](docs/validation.md) | 验证者功能清单与反馈模板 |
+| [docs/architecture.md](docs/architecture.md) | 技术架构（开发者阅读）|
+| [CHANGELOG.md](CHANGELOG.md) | 版本历史 |
+
+---
+
+## 当前进度（v0.1.0-rc.1）
+
+- [x] 聊天记录导入：解析发言人、选择角色、主播档案按名字识别、场次去重
 - [x] 回复配对：关联弹幕、响应延迟、主动发言、动作挂接、未回应弹幕
-- [x] 模型接入：服务商配置、自动识别接口格式（多格式探测）、可搜索多选模型池、手动添加模型、流式测试对话
-- [x] 主播配置：人设上传 / 在线编辑、编号与来源字段（导入 / 手建）、回复配置与主播解耦（任意主播可用）
-- [x] 单人实时 / 多人弹幕剧本模拟：剧本编辑与解析预览、实时 / 倍速 / 跳过等待 / 单步回放、回复策略与模型选弹幕生效、会话自动保存
+- [x] 模型接入：服务商配置、自动识别接口格式（OpenAI 兼容 / Anthropic / Gemini / Ollama）、流式测试
+- [x] 主播配置：人设上传 / 在线编辑、回复配置与主播解耦
+- [x] 单人实时 / 多人弹幕剧本模拟：剧本编辑、实时 / 倍速 / 单步回放、会话自动保存
 - [x] 评估：规则基础分 + LLM 裁判逐条 / 整场打分、可编辑评分模板、综合指数报告
-- [x] 实时评估：直播中开启后每条主播回复自动打分，分数气泡展示在消息上
-- [x] 导航重构：4 个顶层页面（直播间 / 评估分析 / 评分标准 / 设置），URL 路由，直播间内子页切换
-- [x] 前端基础组件：shadcn/ui（17 个组件）、dnd-kit、react-router、模型池选择器
-- [x] 视觉美化：消息气泡重设计（头像、打字动效、入场动画）、评分颜色编码、直播状态脉冲点、按钮平滑过渡、毛玻璃 header
+- [x] 实时评估：直播中每条主播回复自动打分，分数气泡展示
+- [x] 导航：4 个顶层页面（直播间 / 评估分析 / 评分标准 / 设置），URL 路由
