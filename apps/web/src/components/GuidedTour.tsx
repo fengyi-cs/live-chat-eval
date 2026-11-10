@@ -53,6 +53,7 @@ export function GuidedTour() {
   if (completed || hasSessions) return null;
 
   const current = STEPS[step];
+  if (!current) return null;
   const isLast = step === STEPS.length - 1;
 
   const finish = () => setCompleted(true);
