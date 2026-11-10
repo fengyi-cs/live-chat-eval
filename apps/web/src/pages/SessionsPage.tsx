@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useSearchParams } from 'react-router';
+import { useSearchParams } from 'react-router';
 import { api } from '../api.ts';
 import { SOURCE_LABELS, STATUS_LABELS, STATUS_TONE } from '../labels.ts';
 import { usePersistentState } from '../usePersistentState.ts';
@@ -7,10 +7,9 @@ import { card, emptyState, listItem, secondaryBtn } from '../ui.ts';
 import { SessionView } from './SessionView.tsx';
 import { ImportSheet } from './ImportSheet.tsx';
 import { useState } from 'react';
-import { UploadIcon, PlayCircleIcon } from 'lucide-react';
+import { UploadIcon } from 'lucide-react';
 
 export function SessionsPage() {
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const qc = useQueryClient();
   const sessions = useQuery({ queryKey: ['sessions'], queryFn: api.sessions });
@@ -78,25 +77,13 @@ export function SessionsPage() {
 
       <main>
         {activeId ? (
-          <div className="space-y-3">
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className={`${secondaryBtn} flex items-center gap-1.5`}
-                onClick={() => navigate(`/evals?session=${activeId}`)}
-              >
-                <PlayCircleIcon className="size-4" />
-                发起评估
-              </button>
-            </div>
-            <SessionView
-              id={activeId}
-              onDeleted={() => {
-                setSelected(null);
-                qc.invalidateQueries({ queryKey: ['sessions'] });
-              }}
-            />
-          </div>
+          <SessionView
+            id={activeId}
+            onDeleted={() => {
+              setSelected(null);
+              qc.invalidateQueries({ queryKey: ['sessions'] });
+            }}
+          />
         ) : (
           <div className={emptyState}>选择左侧场次查看详情</div>
         )}

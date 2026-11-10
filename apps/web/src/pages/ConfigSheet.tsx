@@ -12,7 +12,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, type AnchorConfig, type AnchorConfigSummary } from '../api.ts';
 import { ModelPicker } from '../components/ModelPicker.tsx';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../components/ui/sheet.tsx';
-import { card, input, primaryBtn, secondaryBtn } from '../ui.ts';
+import { card, fieldHint, fieldLabel, input, primaryBtn, secondaryBtn } from '../ui.ts';
 import { usePersistentState } from '../usePersistentState.ts';
 import { TrialPanel } from './TrialPanel.tsx';
 
@@ -32,9 +32,9 @@ const STRATEGY_DESCRIPTIONS: Record<StrategyKind, string> = {
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <label className="block space-y-1">
-      <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">{label}</span>
+      <span className={fieldLabel}>{label}</span>
       {children}
-      {hint && <span className="block text-xs text-neutral-400">{hint}</span>}
+      {hint && <span className={fieldHint}>{hint}</span>}
     </label>
   );
 }

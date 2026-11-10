@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { api, type ImportPreview } from '../api.ts';
 import { ModelPicker } from '../components/ModelPicker.tsx';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../components/ui/sheet.tsx';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select.tsx';
 import { input, primaryBtn, secondaryBtn } from '../ui.ts';
 
 const ROLE_LABELS: Record<SpeakerRole, string> = {
@@ -221,16 +222,19 @@ export function ImportSheet({ open, onOpenChange, onImported }: Props) {
                         <td className="py-1 pr-2 break-all">{s.name}</td>
                         <td className="py-1 pr-2 text-neutral-500">{s.count}</td>
                         <td className="py-1">
-                          <select
-                            aria-label={`${s.name} 的角色`}
+                          <Select
                             value={roles[s.name]}
-                            onChange={(e) => setRoles(assignRole(roles, s.name, e.target.value as SpeakerRole))}
-                            className="rounded border border-neutral-300 bg-transparent px-1 py-0.5 text-xs dark:border-neutral-700"
+                            onValueChange={(v) => setRoles(assignRole(roles, s.name, v as SpeakerRole))}
                           >
-                            {Object.entries(ROLE_LABELS).map(([value, label]) => (
-                              <option key={value} value={value}>{label}</option>
-                            ))}
-                          </select>
+                            <SelectTrigger className="h-7 w-auto min-w-36 text-xs" aria-label={`${s.name} 的角色`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Object.entries(ROLE_LABELS).map(([value, label]) => (
+                                <SelectItem key={value} value={value}>{label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </td>
                       </tr>
                     ))}
@@ -264,15 +268,16 @@ export function ImportSheet({ open, onOpenChange, onImported }: Props) {
                       {rubrics.data?.length === 0 ? (
                         <span className="text-amber-600">还没有评分标准，先去「评分标准」页新建</span>
                       ) : (
-                        <select
-                          className="flex-1 rounded border border-neutral-300 bg-transparent px-1 py-0.5 text-xs dark:border-neutral-700"
-                          value={effectiveRubricId ?? ''}
-                          onChange={(e) => setRubricId(e.target.value || null)}
-                        >
-                          {rubrics.data?.map((r) => (
-                            <option key={r.id} value={r.id}>{r.name}</option>
-                          ))}
-                        </select>
+                        <Select value={effectiveRubricId ?? ''} onValueChange={(v) => setRubricId(v || null)}>
+                          <SelectTrigger className="h-7 flex-1 text-xs" aria-label="评分标准">
+                            <SelectValue placeholder="选择评分标准" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {rubrics.data?.map((r) => (
+                              <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       )}
                     </label>
                     {needsJudge ? (

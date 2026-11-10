@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { api, type AnchorDetail, type AnchorSource } from '../api.ts';
+import { ModelPicker } from '../components/ModelPicker.tsx';
 import { Dialog, DialogContent, DialogTitle } from '../components/ui/dialog.tsx';
+import { usePersistentState } from '../usePersistentState.ts';
 import { card, input, listItem, primaryBtn, secondaryBtn } from '../ui.ts';
 import { ConfigSheet } from './ConfigSheet.tsx';
 
@@ -72,6 +74,47 @@ function PersonaEditor({ anchor, onDirtyChange }: { anchor: AnchorDetail; onDirt
   );
 }
 
+/** 快速模型切换区块：直接在主播管理里修改当前回复配置的模型 */
+function ModelSection() {
+  const qc = useQueryClient();
+  const [configId] = usePersistentState<string | null>('lce.room.config', null);
+  const configs = useQuery({ queryKey: ['allConfigs'], queryFn: api.allConfigs });
+  const config = configs.data?.find((c) => c.id === configId) ?? configs.data?.[0] ?? null;
+
+  const updateModel = useMutation({
+    mutationFn: (v: { providerId: string | null; model: string | null }) =>
+      api.updateConfig(config!.id, { providerId: v.providerId, model: v.model }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['allConfigs'] }),
+  });
+
+  if (!config) return null;
+
+  return (
+    <section className={`${card} space-y-2`}>
+      <div className="flex items-center gap-2">
+        <h3 className="mr-auto text-sm font-medium">回复模型</h3>
+        <button
+          type="button"
+          className={secondaryBtn}
+          style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem' }}
+          onClick={() => window.dispatchEvent(new CustomEvent('lce:open-config'))}
+        >
+          高级配置 →
+        </button>
+      </div>
+      <p className="text-xs text-neutral-500">
+        配置「{config.name}」正在使用的模型，立即生效。
+      </p>
+      <ModelPicker
+        value={{ providerId: config.providerId, model: config.model }}
+        onChange={(v) => updateModel.mutate(v)}
+      />
+      {updateModel.isPending && <p className="text-xs text-neutral-400">保存中…</p>}
+      {updateModel.error && <p className="text-xs text-red-600">{updateModel.error.message}</p>}
+    </section>
+  );
+}
+
 function AnchorView({ name, onDeleted, onDirtyChange }: { name: string; onDeleted: () => void; onDirtyChange?: (v: boolean) => void }) {
   const queryClient = useQueryClient();
   const detail = useQuery({ queryKey: ['anchor', name], queryFn: () => api.anchor(name) });
@@ -124,14 +167,7 @@ function AnchorView({ name, onDeleted, onDirtyChange }: { name: string; onDelete
 
       <PersonaEditor key={a.name} anchor={a} onDirtyChange={onDirtyChange} />
 
-      <section className={`${card} space-y-2`}>
-        <h3 className="text-sm font-medium">回复配置</h3>
-        <p className="text-xs text-neutral-500">这套配置决定用哪个模型、按什么策略回弹幕，和主播的人设分开。</p>
-        <button type="button" className={secondaryBtn}
-          onClick={() => window.dispatchEvent(new CustomEvent('lce:open-config'))}>
-          管理回复配置 →
-        </button>
-      </section>
+      <ModelSection />
     </div>
   );
 }

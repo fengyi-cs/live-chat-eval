@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, type PingResponse, type Provider, type ProviderInput } from '../api.ts';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '../components/ui/command.tsx';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover.tsx';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select.tsx';
 import { cn } from '../lib/utils.ts';
 import { card, input, listItem, primaryBtn, secondaryBtn } from '../ui.ts';
 import { usePersistentState } from '../usePersistentState.ts';
@@ -85,14 +86,17 @@ function ProviderForm({
       </label>
       <label className="block space-y-1 text-sm">
         <span className="text-xs text-neutral-500">接口类型</span>
-        <select className={input} value={kind} onChange={(e) => setKind(e.target.value as ProviderKind | 'auto')}>
-          <option value="auto">自动识别（保存后依次尝试各种格式，用拉到模型的那一种）</option>
-          {PROVIDER_KINDS.map((k) => (
-            <option key={k} value={k}>
-              {PROVIDER_KIND_LABELS[k]}
-            </option>
-          ))}
-        </select>
+        <Select value={kind} onValueChange={(v) => setKind(v as ProviderKind | 'auto')}>
+          <SelectTrigger className="h-8 w-full text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="auto">自动识别（保存后依次尝试各种格式，用拉到模型的那一种）</SelectItem>
+            {PROVIDER_KINDS.map((k) => (
+              <SelectItem key={k} value={k}>{PROVIDER_KIND_LABELS[k]}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </label>
       <label className="block space-y-1 text-sm">
         <span className="text-xs text-neutral-500">API Key{provider?.apiKeyMasked && `（当前 ${provider.apiKeyMasked}，留空则不修改）`}</span>

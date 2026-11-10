@@ -26,7 +26,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/ui/dialog.tsx';
-import { card, emptyState, input, listItem, primaryBtn, secondaryBtn } from '../ui.ts';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select.tsx';
+import { card, emptyState, fieldLabel, input, listItem, primaryBtn, secondaryBtn } from '../ui.ts';
 import { usePersistentState } from '../usePersistentState.ts';
 import { HintBubble } from '../components/HintBubble.tsx';
 
@@ -35,7 +36,7 @@ const num = (v: string, fallback: number) => (v === '' || !Number.isFinite(Numbe
 function Num({ label, value, onChange, step = 1 }: { label: string; value: number; onChange: (n: number) => void; step?: number }) {
   return (
     <label className="block space-y-1">
-      <span className="text-xs text-neutral-500">{label}</span>
+      <span className={fieldLabel}>{label}</span>
       <input type="number" className={input} step={step} min={0} value={value} onChange={(e) => onChange(num(e.target.value, value))} />
     </label>
   );
@@ -44,7 +45,7 @@ function Num({ label, value, onChange, step = 1 }: { label: string; value: numbe
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block space-y-1">
-      <span className="text-xs text-neutral-500">{label}</span>
+      <span className={fieldLabel}>{label}</span>
       {children}
     </label>
   );
@@ -59,15 +60,15 @@ function DimensionForm({ d, onChange }: { d: Dimension; onChange: (d: Dimension)
           <input type="checkbox" checked={d.enabled} onChange={(e) => set({ enabled: e.target.checked })} />
           启用
         </label>
-        <select
-          aria-label="评分粒度"
-          className="rounded-lg border border-neutral-300 bg-transparent px-2 py-1 text-sm dark:border-neutral-700"
-          value={d.scope}
-          onChange={(e) => set({ scope: e.target.value as Dimension['scope'] })}
-        >
-          <option value="turn">逐条</option>
-          <option value="session">整场</option>
-        </select>
+        <Select value={d.scope} onValueChange={(v) => set({ scope: v as Dimension['scope'] })}>
+          <SelectTrigger className="h-8 w-28 text-sm" aria-label="评分粒度">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="turn">逐条</SelectItem>
+            <SelectItem value="session">整场</SelectItem>
+          </SelectContent>
+        </Select>
         {d.scope === 'turn' && (
           <label className="flex items-center gap-1.5">
             <input type="checkbox" checked={d.skipProactive} onChange={(e) => set({ skipProactive: e.target.checked })} />

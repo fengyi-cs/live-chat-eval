@@ -1,6 +1,7 @@
 import type { ActionEvent, SpeakerRole } from '@lce/core';
 import { useState } from 'react';
 import { formatLatency } from '../labels.ts';
+import { fmtScore, ScorePill } from '../components/ScorePill.tsx';
 
 export interface TurnScore {
   composite: number | null;
@@ -36,15 +37,6 @@ interface Props {
   pending?: boolean;
   score?: TurnScore | null;
   evalDetail?: TurnEvalDetail | null;
-}
-
-const fmtScore = (n: number | null) => (n === null ? '—' : n.toFixed(0));
-
-function scoreTone(n: number | null): string {
-  if (n === null) return 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400';
-  if (n >= 80) return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300';
-  if (n >= 60) return 'bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300';
-  return 'bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-300';
 }
 
 function SpeakerAvatar({ name, isAnchor }: { name: string; isAnchor: boolean }) {
@@ -128,14 +120,11 @@ export function MessageBubble({ m, quote, unanswered, highlighted, pending, scor
             </span>
           )}
           {score && (
-            <button
-              type="button"
-              aria-label={`查看评分详情 · 综合 ${fmtScore(score.composite)}`}
-              className={`rounded-full px-1.5 py-0.5 font-medium tabular-nums ${scoreTone(score.composite)} ${evalDetail ? 'cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-current/40' : 'cursor-default'}`}
-              onClick={() => evalDetail && setShowDetail((v) => !v)}
-            >
-              {fmtScore(score.composite)}{evalDetail ? (showDetail ? ' ▲' : ' ▼') : ''}
-            </button>
+            <ScorePill
+              score={score.composite}
+              onClick={evalDetail ? () => setShowDetail((v) => !v) : undefined}
+              expanded={evalDetail ? showDetail : undefined}
+            />
           )}
         </div>
 

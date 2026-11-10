@@ -2,6 +2,7 @@ import type { ChatMessage, TurnInput } from '@lce/core';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { api, type AnchorConfigSummary, type ChatDone } from '../api.ts';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select.tsx';
 import { card, input, primaryBtn, secondaryBtn } from '../ui.ts';
 import { usePersistentState } from '../usePersistentState.ts';
 
@@ -84,19 +85,17 @@ export function TrialPanel({ config }: { config: AnchorConfigSummary }) {
           <h3 className="text-sm font-medium">回复方案预览</h3>
           <p className="text-xs text-neutral-400">使用选定主播人设测试回复效果，不创建场次记录</p>
         </div>
-        <select
-          aria-label="试播用的主播"
-          className="rounded border border-neutral-300 bg-transparent px-2 py-1.5 text-sm dark:border-neutral-700"
-          value={anchorName ?? ''}
-          onChange={(e) => setAnchorPick(e.target.value)}
-        >
-          {anchors.data?.length === 0 && <option value="">还没有主播</option>}
-          {anchors.data?.map((a) => (
-            <option key={a.name} value={a.name}>
-              {a.name}
-            </option>
-          ))}
-        </select>
+        <Select value={anchorName ?? ''} onValueChange={(v) => setAnchorPick(v)}>
+          <SelectTrigger className="h-8 w-auto min-w-28 text-sm" aria-label="试播用的主播">
+            <SelectValue placeholder="选择主播" />
+          </SelectTrigger>
+          <SelectContent>
+            {anchors.data?.length === 0 && <SelectItem value="__none" disabled>还没有主播</SelectItem>}
+            {anchors.data?.map((a) => (
+              <SelectItem key={a.name} value={a.name}>{a.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <button type="button" className={secondaryBtn} onClick={() => void showPrompt()} disabled={busy}>
           查看提示词
         </button>

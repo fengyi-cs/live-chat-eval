@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useReducer, useState } from 'react';
 import { api, type AnchorConfigSummary, type RunInfo } from '../api.ts';
 import { primaryBtn, secondaryBtn, card, input } from '../ui.ts';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select.tsx';
 import { usePersistentState } from '../usePersistentState.ts';
 import { paceOf, type PaceKey } from '../labels.ts';
 import { SessionView } from './SessionView.tsx';
@@ -32,6 +33,7 @@ function ActiveSession({
   onAnchorChange,
   onOpenSheet,
   onSendDanmaku,
+  configId,
 }: {
   sessionId: string;
   onClosed: () => void;
@@ -39,6 +41,7 @@ function ActiveSession({
   onAnchorChange: (name: string) => void;
   onOpenSheet: (sheet: string) => void;
   onSendDanmaku: (speaker: string, text: string) => Promise<void>;
+  configId?: string | null;
 }) {
   const queryClient = useQueryClient();
   const [room, dispatch] = useReducer(roomReducer, initialRoom);
@@ -82,8 +85,10 @@ function ActiveSession({
         room={room}
         anchorName={anchorName}
         configName={room.info?.configName ?? null}
+        configId={configId}
         onAnchorChange={onAnchorChange}
         onOpenAnchors={() => onOpenSheet('anchors')}
+        onOpenConfig={() => onOpenSheet('config')}
       />
       <ChatArea room={room} info={room.info} liveEval={liveEval} />
       {room.info.mode === 'script' && !room.ended && (
@@ -235,6 +240,7 @@ export function LiveRoom() {
             onAnchorChange={handleAnchorChange}
             onOpenSheet={(s) => handleOpenSheet(s)}
             onSendDanmaku={handleSendDanmaku}
+            configId={effectiveConfig}
           />
         ) : (
           <>
@@ -242,8 +248,10 @@ export function LiveRoom() {
               room={initialRoom}
               anchorName={anchorName}
               configName={configs.data?.find((c) => c.id === effectiveConfig)?.name ?? null}
+              configId={effectiveConfig}
               onAnchorChange={handleAnchorChange}
               onOpenAnchors={() => handleOpenSheet('anchors')}
+              onOpenConfig={() => handleOpenSheet('config')}
             />
             <ChatAreaEmpty
               anchorName={anchorName}
@@ -270,12 +278,19 @@ export function LiveRoom() {
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="block space-y-1">
               <span className="text-xs text-neutral-500">评分标准</span>
-              <select className={input} value={liveEvalRubricId ?? ''} onChange={(e) => setLiveEvalRubricId(e.target.value || null)}>
-                <option value="">请选择评分标准</option>
-                {rubrics.data?.map((r) => (
-                  <option key={r.id} value={r.id}>{r.name}</option>
-                ))}
-              </select>
+              <Select value={liveEvalRubricId ?? ''} onValueChange={(v) => setLiveEvalRubricId(v || null)}>
+                <SelectTrigger className="h-8 w-full text-sm">
+                  <SelectValue placeholder="请选择评分标准" />
+                </SelectTrigger>
+                <SelectContent>
+                  {rubrics.data?.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                  ))}
+                  {rubrics.data?.length === 0 && (
+                    <SelectItem value="__none" disabled>先去『评分标准』新建</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
             </label>
             <div className="space-y-1">
               <span className="text-xs text-neutral-500">裁判模型（可选，仅含规则评分时留空）</span>

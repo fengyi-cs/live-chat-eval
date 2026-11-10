@@ -1,12 +1,50 @@
+import { turnComposite } from '@lce/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '../api.ts';
+import { useMemo } from 'react';
+import { useNavigate } from 'react-router';
+import { PlayCircleIcon } from 'lucide-react';
+import { api, type EvalDetail } from '../api.ts';
 import { formatLatency, SOURCE_LABELS, STATUS_LABELS, STATUS_TONE } from '../labels.ts';
-import { card } from '../ui.ts';
-import { MessageBubble } from './MessageBubble.tsx';
+import { card, secondaryBtn } from '../ui.ts';
+import { fmtScore, ScorePill } from '../components/ScorePill.tsx';
+import { MessageBubble, type TurnEvalDetail, type TurnScore } from './MessageBubble.tsx';
+
+function useSessionEval(sessionId: string) {
+  const evals = useQuery({ queryKey: ['evals', sessionId], queryFn: () => api.evals(sessionId) });
+  const latest = evals.data?.find((e) => e.status === 'done') ?? evals.data?.[0] ?? null;
+  const detail = useQuery({
+    queryKey: ['eval', latest?.id],
+    queryFn: () => api.evalDetail(latest!.id),
+    enabled: Boolean(latest),
+  });
+  return { latest, detail: latest ? detail.data : undefined };
+}
+
+function buildScoreMaps(d: EvalDetail | undefined) {
+  const scores = new Map<number, TurnScore>();
+  const details = new Map<number, TurnEvalDetail>();
+  if (!d) return { scores, details };
+  for (const it of d.items) {
+    if (it.kind !== 'turn' || it.seq === null) continue;
+    const turnRules = d.rules.turns[it.seq];
+    scores.set(it.seq, turnComposite(d.rubric, turnRules, it));
+    details.set(it.seq, {
+      dimensions: d.rubric.dimensions
+        .filter((dim) => it.scores?.[dim.key])
+        .map((dim) => ({ name: dim.name, score: it.scores![dim.key]!.score, reason: it.scores![dim.key]!.reason })),
+      aiPhraseHits: turnRules?.aiPhrases?.hits,
+      latencyMs: turnRules?.latency?.value ?? null,
+      evalError: it.status === 'error' ? it.error : null,
+    });
+  }
+  return { scores, details };
+}
 
 export function SessionView({ id, onDeleted }: { id: string; onDeleted: () => void }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const session = useQuery({ queryKey: ['session', id], queryFn: () => api.session(id) });
+  const { latest: evalItem, detail: evalDetail } = useSessionEval(id);
   const remove = useMutation({
     mutationFn: () => api.deleteSession(id),
     onSuccess: () => {
@@ -15,6 +53,8 @@ export function SessionView({ id, onDeleted }: { id: string; onDeleted: () => vo
       onDeleted();
     },
   });
+
+  const { scores: scoreBySeq, details: detailBySeq } = useMemo(() => buildScoreMaps(evalDetail), [evalDetail]);
 
   if (session.isPending) return <p className="text-sm text-neutral-500">加载中…</p>;
   if (session.error) return <p className="text-sm text-red-600">{session.error.message}</p>;
@@ -58,17 +98,46 @@ export function SessionView({ id, onDeleted }: { id: string; onDeleted: () => vo
             {avgLatency !== null && ` · 平均延迟 ${formatLatency(avgLatency)}`}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => confirm('删除这个会话？') && remove.mutate()}
-          className="rounded border border-neutral-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-neutral-700 dark:hover:bg-red-950"
-        >
-          删除
-        </button>
+        <div className="flex items-center gap-2">
+          {evalItem ? (
+            <button
+              type="button"
+              className={`${secondaryBtn} flex items-center gap-1.5`}
+              onClick={() => navigate(`/evals?session=${id}`)}
+              title="打开评估分析页面查看详情"
+            >
+              <ScorePill score={evalItem.composite} label={evalItem.status === 'running' ? '评估中…' : `综合 ${fmtScore(evalItem.composite)}`} />
+              查看评估
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={`${secondaryBtn} flex items-center gap-1.5`}
+              onClick={() => navigate(`/evals?session=${id}`)}
+            >
+              <PlayCircleIcon className="size-4" />
+              发起评估
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => confirm('删除这个会话？') && remove.mutate()}
+            className={`${secondaryBtn} text-red-600`}
+          >
+            删除
+          </button>
+        </div>
       </div>
       <ul className="space-y-3">
         {s.messages.map((m) => (
-          <MessageBubble key={m.id} m={{ ...m, time: m.time.slice(11) }} quote={quote} unanswered={unanswered.has(m.seq)} />
+          <MessageBubble
+            key={m.id}
+            m={{ ...m, time: m.time.slice(11) }}
+            quote={quote}
+            unanswered={unanswered.has(m.seq)}
+            score={m.role === 'anchor' ? scoreBySeq.get(m.seq) ?? null : null}
+            evalDetail={m.role === 'anchor' ? detailBySeq.get(m.seq) ?? null : null}
+          />
         ))}
       </ul>
     </div>

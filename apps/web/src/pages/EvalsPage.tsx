@@ -1,14 +1,17 @@
 import { RULE_KEYS, RULE_LABELS, turnLlmScore } from '@lce/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router';
-import { api, type EvalDetail, type EvalEvent, type EvalItemView, type StoredMessage } from '../api.ts';
+import { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router';
+import { ExternalLinkIcon } from 'lucide-react';
+import { api, type EvalDetail, type EvalEvent, type EvalItemView } from '../api.ts';
 import { ModelPicker } from '../components/ModelPicker.tsx';
-import { card, emptyState, input, listItem, primaryBtn, secondaryBtn } from '../ui.ts';
+import { fmtScore, scoreTone, ScorePill } from '../components/ScorePill.tsx';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select.tsx';
+import { card, emptyState, fieldLabel, input, listItem, primaryBtn, secondaryBtn } from '../ui.ts';
 import { usePersistentState } from '../usePersistentState.ts';
 
 const STATUS: Record<EvalDetail['status'], string> = { running: '评估中', done: '已完成', stopped: '已停止', error: '出错' };
-const fmt = (n: number | null | undefined) => (n === null || n === undefined ? '—' : n.toFixed(1));
+const fmt = fmtScore;
 const tone = (n: number | null) => (n === null ? 'text-neutral-400' : n >= 80 ? 'text-emerald-600' : n >= 60 ? 'text-amber-600' : 'text-red-600');
 
 function Bar({ value }: { value: number | null }) {
@@ -74,30 +77,32 @@ function StartPanel({ onStarted }: { onStarted: (id: string) => void }) {
   return (
     <section className={`${card} space-y-3`}>
       <h2 className="text-sm font-medium">发起评估</h2>
-      <label className="block space-y-1">
-        <span className="text-xs text-neutral-500">会话</span>
-        <select className={input} value={session?.id ?? ''} onChange={(e) => setSessionId(e.target.value)}>
-          {done.length === 0 && <option value="">还没有会话</option>}
-          {done.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.anchorName} · {s.title ?? s.externalId ?? s.id.slice(0, 8)} · {s.messageCount} 条
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="block space-y-1">
-        <span className="text-xs text-neutral-500">评分标准</span>
-        <select className={input} value={rubric?.id ?? ''} onChange={(e) => setRubricId(e.target.value)}>
-          {rubrics.data?.length === 0 && <option value="">先去「评分标准」新建</option>}
-          {rubrics.data?.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.name}
-            </option>
-          ))}
-        </select>
-      </label>
       <div className="space-y-1">
-        <span className="text-xs text-neutral-500">裁判模型</span>
+        <span className={fieldLabel}>会话</span>
+        <Select value={session?.id ?? undefined} onValueChange={(v) => setSessionId(v)}>
+          <SelectTrigger className="h-8 w-full text-sm"><SelectValue placeholder="请选择会话" /></SelectTrigger>
+          <SelectContent>
+            {done.length === 0 && <SelectItem value="__none" disabled>还没有会话</SelectItem>}
+            {done.map((s) => (
+              <SelectItem key={s.id} value={s.id}>
+                {s.anchorName} · {s.title ?? s.externalId ?? s.id.slice(0, 8)} · {s.messageCount} 条
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1">
+        <span className={fieldLabel}>评分标准</span>
+        <Select value={rubric?.id ?? undefined} onValueChange={(v) => setRubricId(v)}>
+          <SelectTrigger className="h-8 w-full text-sm"><SelectValue placeholder="请选择评分标准" /></SelectTrigger>
+          <SelectContent>
+            {rubrics.data?.length === 0 && <SelectItem value="__none" disabled>先去『评分标准』新建</SelectItem>}
+            {rubrics.data?.map((r) => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1">
+        <span className={fieldLabel}>裁判模型</span>
         {needsJudge ? (
           <>
             <ModelPicker value={judgeChoice} onChange={setJudgeChoice} />
@@ -108,16 +113,19 @@ function StartPanel({ onStarted }: { onStarted: (id: string) => void }) {
         )}
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <label className="block space-y-1">
-          <span className="text-xs text-neutral-500">温度</span>
+        <div className="space-y-1">
+          <span className={fieldLabel}>温度</span>
           <input type="number" className={input} min={0} max={2} step={0.1} value={temperature} onChange={(e) => setTemperature(Number(e.target.value) || 0)} />
-        </label>
-        <label className="block space-y-1">
-          <span className="text-xs text-neutral-500">每条打分次数（取平均）</span>
-          <select className={input} value={samples} onChange={(e) => setSamples(Number(e.target.value))}>
-            {[1, 2, 3].map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
-        </label>
+        </div>
+        <div className="space-y-1">
+          <span className={fieldLabel}>每条打分次数</span>
+          <Select value={String(samples)} onValueChange={(v) => setSamples(Number(v))}>
+            <SelectTrigger className="h-8 w-full text-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {[1, 2, 3].map((n) => <SelectItem key={n} value={String(n)}>{n} 次（取平均）</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
       {needsJudge && estCalls > 0 && (
         <p className="text-xs text-neutral-500">预计 LLM 调用：{estCalls} 次（最多 {estCalls * 3} 次含重试）</p>
@@ -139,13 +147,7 @@ function TurnRow({ it, detail }: { it: EvalItemView; detail: EvalDetail }) {
       <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-500">
         <span className="rounded-full bg-neutral-100 px-2 py-0.5 font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">{it.kind === 'session' ? '整场' : `#${it.seq}${it.proactive ? ' · 主动' : ''}`}</span>
         {it.status === 'done' && (
-          <span className={`rounded-full px-2 py-0.5 font-medium tabular-nums ${
-            (llm ?? 0) >= 80
-              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300'
-              : (llm ?? 0) >= 60
-                ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300'
-                : 'bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-300'
-          }`}>LLM {fmt(llm)}</span>
+          <ScorePill score={llm} label={`LLM ${fmt(llm)}`} />
         )}
         {it.status === 'pending' && <span className="text-neutral-400">等待打分…</span>}
         {it.status === 'skipped' && <span className="text-neutral-400">不需要 LLM 评</span>}
@@ -168,88 +170,15 @@ function TurnRow({ it, detail }: { it: EvalItemView; detail: EvalDetail }) {
   );
 }
 
-function StreamView({ d, messages }: { d: EvalDetail; messages: StoredMessage[] }) {
-  const [expandedSeq, setExpandedSeq] = useState<number | null>(null);
-  const evalBySeq = useMemo(() => {
-    const m = new Map<number, EvalItemView>();
-    for (const it of d.items) if (it.kind === 'turn' && it.seq !== null) m.set(it.seq, it);
-    return m;
-  }, [d.items]);
-
-  return (
-    <div className="space-y-2">
-      {messages.map((msg) => {
-        const isAnchor = msg.role === 'anchor';
-        const evalItem = isAnchor && msg.seq !== null ? evalBySeq.get(msg.seq) : undefined;
-        const llm = evalItem?.status === 'done' ? turnLlmScore(d.rubric, evalItem) : null;
-        const expanded = expandedSeq === msg.seq;
-        const rules = evalItem?.seq === null ? undefined : d.rules.turns[evalItem?.seq ?? -1];
-
-        return (
-          <div key={msg.id} className={`flex ${isAnchor ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[78%] space-y-1.5 rounded-xl px-3 py-2 text-sm ${
-              isAnchor
-                ? 'rounded-br-sm bg-indigo-50 dark:bg-indigo-950/40'
-                : 'rounded-bl-sm bg-neutral-100 dark:bg-neutral-800'
-            }`}>
-              {!isAnchor && <p className="text-xs font-medium text-neutral-400">{msg.speaker}</p>}
-              <p className="whitespace-pre-wrap leading-relaxed">{msg.text}</p>
-              {isAnchor && evalItem && (
-                <button
-                  type="button"
-                  onClick={() => setExpandedSeq(expanded ? null : msg.seq)}
-                  className={`rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
-                    llm === null
-                      ? 'bg-neutral-200 text-neutral-500 dark:bg-neutral-700'
-                      : llm >= 80
-                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300'
-                        : llm >= 60
-                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300'
-                          : 'bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-300'
-                  }`}
-                >
-                  {evalItem.status === 'pending' ? '评估中…' : evalItem.status === 'skipped' ? '仅规则' : `LLM ${fmt(llm)}`}
-                  {expanded ? ' ▲' : ' ▼'}
-                </button>
-              )}
-              {isAnchor && expanded && evalItem && (
-                <div className="mt-1 space-y-1 border-t border-indigo-100 pt-2 text-xs dark:border-indigo-800/40">
-                  {d.rubric.dimensions.filter((dim) => evalItem.scores?.[dim.key]).map((dim) => (
-                    <div key={dim.key}>
-                      <span className="font-medium">{dim.name} {evalItem.scores![dim.key]!.score}</span>
-                      <span className="text-neutral-500"> · {evalItem.scores![dim.key]!.reason}</span>
-                    </div>
-                  ))}
-                  {rules && rules.latency && <div className="text-neutral-500">延迟 {((rules.latency.value ?? 0) / 1000).toFixed(1)}s</div>}
-                  {rules?.aiPhrases?.hits?.length ? <div className="text-amber-600">AI 腔：{rules.aiPhrases.hits.join('、')}</div> : null}
-                  {evalItem.status === 'error' && <p className="text-red-600">{evalItem.error}</p>}
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 function Report({ id, onDeleted }: { id: string; onDeleted: () => void }) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const detail = useQuery({ queryKey: ['eval', id], queryFn: () => api.evalDetail(id) });
   const [live, setLive] = useState<EvalDetail | null>(null);
   const running = (live ?? detail.data)?.status === 'running';
-  const [viewMode, setViewMode] = useState<'detail' | 'stream'>('detail');
   const [page, setPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
-  // S21: 状态过滤
   const [filterMode, setFilterMode] = useState<'all' | 'low' | 'error'>('all');
-
-  const sessionId = (live ?? detail.data)?.sessionId ?? '';
-  const sessionQ = useQuery({
-    queryKey: ['session', sessionId],
-    queryFn: () => api.session(sessionId),
-    enabled: Boolean(sessionId) && viewMode === 'stream',
-  });
 
   useEffect(() => {
     if (!running) return;
@@ -286,18 +215,6 @@ function Report({ id, onDeleted }: { id: string; onDeleted: () => void }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2">
-        <button
-          type="button"
-          className={viewMode === 'detail' ? primaryBtn : secondaryBtn}
-          onClick={() => setViewMode('detail')}
-        >详细分析</button>
-        <button
-          type="button"
-          className={viewMode === 'stream' ? primaryBtn : secondaryBtn}
-          onClick={() => setViewMode('stream')}
-        >流式查看</button>
-      </div>
       <section className={`${card} space-y-3`}>
         <div className="flex flex-wrap items-start gap-2">
           <div className="mr-auto">
@@ -310,6 +227,15 @@ function Report({ id, onDeleted }: { id: string; onDeleted: () => void }) {
             </p>
             {d.error && <p className="text-xs text-red-600">{d.error}</p>}
           </div>
+          <button
+            type="button"
+            className={`${secondaryBtn} flex items-center gap-1.5`}
+            onClick={() => navigate(`/sessions?session=${d.sessionId}`)}
+            title="在场次库查看对话记录和评分"
+          >
+            <ExternalLinkIcon className="size-3.5" />
+            查看对话
+          </button>
           {running && (
             <button type="button" className={secondaryBtn} onClick={() => stop.mutate()}>
               停止
@@ -381,15 +307,7 @@ function Report({ id, onDeleted }: { id: string; onDeleted: () => void }) {
         </div>
       </section>
 
-      {viewMode === 'stream' ? (
-        <section className={`${card} space-y-3`}>
-          <h3 className="text-sm font-medium">流式查看</h3>
-          {sessionQ.isPending && <p className="text-sm text-neutral-500">加载会话消息…</p>}
-          {sessionQ.error && <p className="text-sm text-red-600">{sessionQ.error.message}</p>}
-          {sessionQ.data && <StreamView d={d} messages={sessionQ.data.messages} />}
-        </section>
-      ) : (
-        <section className={`${card} space-y-3`}>
+      <section className={`${card} space-y-3`}>
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="mr-auto text-sm font-medium">逐条明细</h3>
             <div className="flex rounded-lg border border-neutral-200 text-xs dark:border-neutral-700" role="group" aria-label="过滤">
@@ -452,7 +370,6 @@ function Report({ id, onDeleted }: { id: string; onDeleted: () => void }) {
             );
           })()}
         </section>
-      )}
     </div>
   );
 }
@@ -472,15 +389,7 @@ export function EvalsPage() {
             {list.data?.map((e) => (
               <li key={e.id}>
                 <button type="button" className={listItem(e.id === active?.id)} onClick={() => setSelected(e.id)}>
-                  <span className={`mr-2 rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${
-                    (e.composite ?? 0) >= 80
-                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300'
-                      : (e.composite ?? 0) >= 60
-                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300'
-                        : e.composite !== null
-                          ? 'bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-300'
-                          : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800'
-                  }`}>{fmt(e.composite)}</span>
+                  <ScorePill score={e.composite} className="mr-2" />
                   {e.anchorName}
                   <span className="ml-2 text-xs text-neutral-500">
                     {e.rubricName} · {STATUS[e.status]}

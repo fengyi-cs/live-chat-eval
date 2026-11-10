@@ -10,3 +10,5 @@ export const listItem = (active: boolean) =>
   `w-full rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800 ${active ? 'bg-neutral-100 font-medium dark:bg-neutral-800' : ''}`;
 export const emptyState =
   'rounded-xl border border-dashed border-neutral-300 p-10 text-center text-sm text-neutral-500 dark:border-neutral-700';
+export const fieldLabel = 'text-xs font-medium text-neutral-600 dark:text-neutral-400';
+export const fieldHint = 'block text-xs text-neutral-400';

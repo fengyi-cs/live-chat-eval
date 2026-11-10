@@ -2,6 +2,7 @@ import type { Pace } from '@lce/core';
 import { useMutation } from '@tanstack/react-query';
 import { PACE_OPTIONS, paceKeyOf, paceOf, type PaceKey } from '../../labels.ts';
 import { api } from '../../api.ts';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select.tsx';
 import { primaryBtn, secondaryBtn } from '../../ui.ts';
 
 interface Props {
@@ -21,18 +22,16 @@ export function ScriptControlBar({ sessionId, pace, waitingStep, running }: Prop
 
   return (
     <div className="flex flex-wrap items-center gap-2 border-t border-neutral-200 px-2 py-1.5 text-sm dark:border-neutral-800">
-      <select
-        aria-label="节奏"
-        className="rounded border border-neutral-300 bg-transparent px-2 py-1 text-sm dark:border-neutral-700"
-        value={paceKeyOf(pace)}
-        onChange={(e) => paceMut.mutate(paceOf(e.target.value as PaceKey))}
-      >
-        {PACE_OPTIONS.map((o) => (
-          <option key={o.key} value={o.key}>
-            {o.label}
-          </option>
-        ))}
-      </select>
+      <Select value={paceKeyOf(pace)} onValueChange={(v) => paceMut.mutate(paceOf(v as PaceKey))}>
+        <SelectTrigger className="h-8 w-auto text-sm" aria-label="节奏">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {PACE_OPTIONS.map((o) => (
+            <SelectItem key={o.key} value={o.key}>{o.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
       {pace?.kind === 'step' && (
         <button type="button" className={primaryBtn} disabled={!waitingStep || stepMut.isPending} onClick={() => stepMut.mutate()}>
           下一步

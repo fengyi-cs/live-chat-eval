@@ -1,8 +1,10 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatOffset } from '@lce/core';
-import { ChevronDownIcon, PlusIcon } from 'lucide-react';
+import { ChevronDownIcon, PlusIcon, ZapIcon } from 'lucide-react';
 import { useState } from 'react';
 import { api, type Anchor, type RunInfo } from '../../api.ts';
+import { ModelPicker } from '../../components/ModelPicker.tsx';
+import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover.tsx';
 import { usePersistentState } from '../../usePersistentState.ts';
 import { END_LABELS, type RoomState } from './roomReducer.ts';
 
@@ -10,11 +12,66 @@ interface Props {
   room: RoomState;
   anchorName: string | null;
   configName: string | null;
+  configId?: string | null;
   onAnchorChange: (name: string) => void;
   onOpenAnchors: () => void;
+  onOpenConfig?: () => void;
 }
 
-export function RoomTopBar({ room, anchorName, configName, onAnchorChange, onOpenAnchors }: Props) {
+/** 内联模型切换按鈕：显示当前配置的模型，单击弹出切换面板 */
+function ModelChip({ configId, onOpenConfig }: { configId?: string | null; onOpenConfig?: () => void }) {
+  const qc = useQueryClient();
+  const configs = useQuery({ queryKey: ['allConfigs'], queryFn: api.allConfigs });
+  const [open, setOpen] = useState(false);
+  const config = configs.data?.find((c) => c.id === configId) ?? null;
+
+  const update = useMutation({
+    mutationFn: (v: { providerId: string | null; model: string | null }) =>
+      api.updateConfig(config!.id, { providerId: v.providerId, model: v.model }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['allConfigs'] }); setOpen(false); },
+  });
+
+  if (!config) return null;
+  const modelLabel = config.model ?? '未配置模型';
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          title="切换模型"
+          className={`hidden items-center gap-1 rounded-lg border px-2 py-1 text-xs transition-colors sm:flex ${
+            config.modelAvailable
+              ? 'border-neutral-200 text-neutral-600 hover:border-neutral-300 hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800/60'
+              : 'border-amber-200 text-amber-600 dark:border-amber-700 dark:text-amber-400'
+          }`}
+        >
+          <ZapIcon className="size-3 shrink-0" />
+          <span className="max-w-32 truncate">{modelLabel}</span>
+          <ChevronDownIcon className="size-3 opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-72 p-2" side="bottom">
+        <p className="mb-2 text-xs font-medium text-neutral-500">切换模型（配置「{config.name}」）</p>
+        <ModelPicker
+          value={{ providerId: config.providerId, model: config.model }}
+          onChange={(v) => update.mutate(v)}
+        />
+        {onOpenConfig && (
+          <button
+            type="button"
+            className="mt-2 w-full rounded text-left text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+            onClick={() => { setOpen(false); onOpenConfig(); }}
+          >
+            高级回复配置 →
+          </button>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+export function RoomTopBar({ room, anchorName, configName, configId, onAnchorChange, onOpenAnchors, onOpenConfig }: Props) {
   const anchors = useQuery({ queryKey: ['anchors'], queryFn: api.anchors });
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
@@ -100,7 +157,8 @@ export function RoomTopBar({ room, anchorName, configName, onAnchorChange, onOpe
       </div>
 
       <div className="ml-auto flex items-center gap-1">
-        {configName && (
+        <ModelChip configId={configId} onOpenConfig={onOpenConfig} />
+        {!configId && configName && (
           <span className="hidden rounded-lg border border-neutral-200 px-2.5 py-1 text-xs text-neutral-500 sm:inline dark:border-neutral-800">
             {configName}
           </span>
